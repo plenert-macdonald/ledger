@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -81,7 +82,7 @@ func ParseLedgerAsync(ledgerReader io.Reader) (c chan *Transaction, e chan error
 }
 
 type parser struct {
-	scanner *linescanner
+	scanner *bufio.Scanner
 
 	comments   []string
 	dateLayout string
@@ -94,6 +95,16 @@ type parser struct {
 	ctIdx        int
 	postings     []Account
 	cpIdx        int
+	line         int
+}
+
+func newParser(ledgerReader io.Reader) parser {
+	var lp parser
+	lp.init()
+	lp.scanner = bufio.NewScanner(ledgerReader)
+	lp.scanner.Split(bufio.ScanLines)
+
+	return lp
 }
 
 const preAllocSize = 100000
@@ -104,6 +115,7 @@ func (p *parser) init() {
 	p.postings = make([]Account, preAllocSize*3)
 	p.ctIdx = 0
 	p.cpIdx = 0
+	p.line = 0
 }
 
 func (p *parser) grow() {
@@ -113,14 +125,19 @@ func (p *parser) grow() {
 	}
 }
 
-func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
-	var lp parser
-	lp.init()
-	lp.scanner = newLineScanner(filename, ledgerReader)
+func (lp *parser) scan() bool {
+	success := lp.scanner.Scan()
+	if success {
+		lp.line += 1
+	}
+	return success
+}
 
+func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
+	lp := newParser(ledgerReader)
 	var tlist []*Transaction
 
-	for lp.scanner.Scan() {
+	for lp.scan() {
 		// remove heading and tailing space from the line
 		trimmedLine := strings.TrimSpace(lp.scanner.Text())
 
@@ -142,7 +159,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 
 		before, after, split := strings.Cut(trimmedLine, " ")
 		if !split {
-			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(),
+			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, lp.line,
 				fmt.Errorf("unable to parse payee line: %s", trimmedLine))) {
 				return true
 			}
@@ -155,9 +172,9 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 		case "account":
 			lp.skipAccount()
 		case "include":
-			paths, _ := filepath.Glob(filepath.Join(filepath.Dir(lp.scanner.Name()), after))
+			paths, _ := filepath.Glob(filepath.Join(filepath.Dir(filename), after))
 			if len(paths) < 1 {
-				callback(nil, fmt.Errorf("%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found")))
+				callback(nil, fmt.Errorf("%s:%d: unable to include file(%s): %w", filename, lp.line, after, errors.New("not found")))
 				return true
 			}
 			var wg sync.WaitGroup
@@ -179,7 +196,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 		default:
 			trans, transErr := lp.parseTransaction(before, after, currentComment)
 			if transErr != nil {
-				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), transErr)) {
+				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, lp.line, transErr)) {
 					return true
 				}
 				continue
@@ -192,7 +209,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 }
 
 func (lp *parser) skipAccount() {
-	for lp.scanner.Scan() {
+	for lp.scan() {
 		// Read until blank line (ignore all sub-directives)
 		if len(lp.scanner.Text()) == 0 {
 			return
@@ -281,7 +298,7 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string)
 	var emptyAccIndex int
 	var accIndex int
 
-	for lp.scanner.Scan() {
+	for lp.scan() {
 		trimmedLine := lp.scanner.Text()
 
 		// handle comments
