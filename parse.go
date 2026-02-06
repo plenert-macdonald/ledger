@@ -199,7 +199,7 @@ func parseLedger(filename string, ledgerReader io.Reader, results chan result, c
 				defer ifile.Close()
 
 				incresults := make(chan result, 1000)
-				parseLedger(incpath, ifile, incresults, ctx)
+				go parseLedger(incpath, ifile, incresults, ctx)
 				for result := range incresults {
 					results <- result
 				}
