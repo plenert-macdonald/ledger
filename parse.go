@@ -136,16 +136,23 @@ type block struct {
 func (lp *parser) nextBlock() (*block, error) {
 	b := &block{filename: lp.filename, body: []string{}}
 
+	setLine := false
 	for lp.scan() {
 		line := strings.TrimSpace(lp.scanner.Text())
 
 		if len(line) > 0 {
+			if !setLine {
+				setLine = true
+				b.lineNum = lp.line
+			}
 			b.body = append(b.body, line)
 		} else if len(b.body) > 0 {
 			return b, nil
-		} else {
-			b.lineNum = lp.line
 		}
+	}
+
+	if len(b.body) > 0 {
+		return b, nil
 	}
 	return nil, ErrNoMoreBlocks
 }
@@ -157,8 +164,8 @@ func (b *block) header() (string, string, string, error) {
 			continue
 		}
 		if commentIdx := strings.Index(line, ";"); commentIdx >= 0 {
-			line = strings.TrimSpace(line[:commentIdx])
 			comment = line[commentIdx:]
+			line = strings.TrimSpace(line[:commentIdx])
 		}
 		before, after, split := strings.Cut(line, " ")
 		if !split {
@@ -188,10 +195,12 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 
 	emptyAccIndex := 0
 	for i, line := range b.body {
-		if i <= b.headingLine {
+		if i < b.headingLine {
 			if commentIdx := strings.Index(line, ";"); commentIdx >= 0 {
 				comments = append(comments, line[commentIdx:])
 			}
+			continue
+		} else if i == b.headingLine {
 			continue
 		}
 
@@ -203,8 +212,8 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 		}
 
 		if len(line) == 0 {
-			// maybe need to continue
-			return nil, ErrEmptyLineInBlock
+			comments = append(comments, postingComment)
+			continue
 		}
 
 		posting, err := parsePosting(line)
@@ -250,7 +259,9 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 	trans.Payee = payeeString
 	trans.Date = transDate
 	trans.PayeeComment = payeeComment
-	trans.Comments = comments
+	if len(comments) > 0 {
+		trans.Comments = comments
+	}
 
 	return trans, nil
 }

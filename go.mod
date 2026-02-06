@@ -1,6 +1,8 @@
 module github.com/howeyc/ledger
 
-go 1.22
+go 1.23.5
+
+toolchain go1.24.13
 
 require (
 	github.com/alfredxing/calc v0.0.0-20180827002445-77daf576f976

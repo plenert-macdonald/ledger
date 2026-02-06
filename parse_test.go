@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -721,9 +720,9 @@ func TestAccount_parsePosting(t *testing.T) {
 				}
 				return
 			}
-			if !reflect.DeepEqual(a, tt.want) {
-				aJson, _ := json.Marshal(a)
-				wantJson, _ := json.Marshal(tt.want)
+			aJson, _ := json.Marshal(a)
+			wantJson, _ := json.Marshal(tt.want)
+			if string(aJson) != string(wantJson) {
 				t.Errorf("got %+v wanted %+v", string(aJson), string(wantJson))
 			}
 			if tt.wantErr {
@@ -846,8 +845,10 @@ func Test_block_transaction(t *testing.T) {
 				t.Error(err)
 			}
 
-			if trx != nil && !reflect.DeepEqual(*trx, tt.out) {
-				t.Errorf("block.transaction() = %+v, want %+v", *trx, tt.out)
+			a, _ := json.MarshalIndent(*trx, "", " ")
+			b, _ := json.MarshalIndent(tt.out, "", " ")
+			if trx != nil && string(a) != string(b) {
+				t.Errorf("block.transaction() = got %+v, want %+v", string(a), string(b))
 			}
 		})
 	}
