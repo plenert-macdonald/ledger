@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/alfredxing/calc/compute"
@@ -17,42 +17,51 @@ import (
 	date "github.com/joyt/godate"
 )
 
+type result struct {
+	*Transaction
+	error
+}
+
 // ParseLedgerFile parses a ledger file and returns a list of Transactions.
 func ParseLedgerFile(filename string) (generalLedger []*Transaction, err error) {
-	ifile, ierr := os.Open(filename)
+	ledgerReader, ierr := os.Open(filename)
 	if ierr != nil {
 		return nil, ierr
 	}
-	defer ifile.Close()
-	var mu sync.Mutex
-	parseLedger(filename, ifile, func(t []*Transaction, e error) (stop bool) {
-		if e != nil {
-			err = e
-			stop = true
-			return
-		}
+	defer ledgerReader.Close()
 
-		mu.Lock()
-		generalLedger = append(generalLedger, t...)
-		mu.Unlock()
-		return
-	})
+	results := make(chan result, 100)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go parseLedger(filename, ledgerReader, results, ctx)
+
+	for result := range results {
+		if result.error != nil {
+			return nil, err
+		}
+		generalLedger = append(generalLedger, result.Transaction)
+	}
 
 	return
 }
 
 // ParseLedger parses a ledger file and returns a list of Transactions.
 func ParseLedger(ledgerReader io.Reader) (generalLedger []*Transaction, err error) {
-	parseLedger("", ledgerReader, func(t []*Transaction, e error) (stop bool) {
-		if e != nil {
-			err = e
-			stop = true
-			return
-		}
+	results := make(chan result, 100)
 
-		generalLedger = append(generalLedger, t...)
-		return
-	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go parseLedger("", ledgerReader, results, ctx)
+
+	for result := range results {
+		if result.error != nil {
+			return nil, err
+		}
+		generalLedger = append(generalLedger, result.Transaction)
+	}
 
 	return
 }
@@ -63,20 +72,22 @@ func ParseLedgerAsync(ledgerReader io.Reader) (c chan *Transaction, e chan error
 	e = make(chan error)
 
 	go func() {
-		parseLedger("", ledgerReader, func(tlist []*Transaction, err error) (stop bool) {
-			if err != nil {
-				e <- err
-			} else {
-				for _, t := range tlist {
-					c <- t
-				}
-			}
-			return
-		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		defer close(c)
+		defer close(e)
+		results := make(chan result, 100)
 
-		e <- nil
-		close(c)
-		close(e)
+		go parseLedger("", ledgerReader, results, ctx)
+
+		for result := range results {
+			if result.error != nil {
+				e <- result.error
+			}
+			if result.Transaction != nil {
+				c <- result.Transaction
+			}
+		}
 	}()
 	return c, e
 }
@@ -133,9 +144,9 @@ func (lp *parser) scan() bool {
 	return success
 }
 
-func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
+func parseLedger(filename string, ledgerReader io.Reader, results chan result, ctx context.Context) {
+	defer close(results)
 	lp := newParser(ledgerReader)
-	var tlist []*Transaction
 
 	for lp.scan() {
 		// remove heading and tailing space from the line
@@ -159,9 +170,12 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 
 		before, after, split := strings.Cut(trimmedLine, " ")
 		if !split {
-			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, lp.line,
-				fmt.Errorf("unable to parse payee line: %s", trimmedLine))) {
-				return true
+			results <- result{
+				nil,
+				fmt.Errorf(
+					"%s:%d: unable to parse transaction: %w", filename, lp.line,
+					fmt.Errorf("unable to parse payee line: %s", trimmedLine),
+				),
 			}
 			if len(currentComment) > 0 {
 				lp.comments = append(lp.comments, currentComment)
@@ -174,38 +188,42 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 		case "include":
 			paths, _ := filepath.Glob(filepath.Join(filepath.Dir(filename), after))
 			if len(paths) < 1 {
-				callback(nil, fmt.Errorf("%s:%d: unable to include file(%s): %w", filename, lp.line, after, errors.New("not found")))
-				return true
+				results <- result{
+					nil,
+					fmt.Errorf("%s:%d: unable to include file(%s): %w", filename, lp.line, after, errors.New("not found")),
+				}
+				return
 			}
-			var wg sync.WaitGroup
 			for _, incpath := range paths {
-				wg.Add(1)
-				go func(ipath string) {
-					ifile, _ := os.Open(ipath)
-					defer ifile.Close()
-					if parseLedger(ipath, ifile, callback) {
-						stop = true
-					}
-					wg.Done()
-				}(incpath)
-			}
-			wg.Wait()
-			if stop {
-				return stop
+				ifile, _ := os.Open(incpath)
+				defer ifile.Close()
+
+				incresults := make(chan result, 100)
+				go parseLedger(incpath, ifile, incresults, ctx)
+				for result := range incresults {
+					results <- result
+				}
 			}
 		default:
 			trans, transErr := lp.parseTransaction(before, after, currentComment)
 			if transErr != nil {
-				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, lp.line, transErr)) {
-					return true
+				results <- result{
+					nil,
+					fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, lp.line, transErr),
 				}
 				continue
 			}
-			tlist = append(tlist, trans)
+
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				results <- result{
+					Transaction: trans,
+				}
+			}
 		}
 	}
-	callback(tlist, nil)
-	return false
 }
 
 func (lp *parser) skipAccount() {
