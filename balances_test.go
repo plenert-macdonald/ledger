@@ -97,17 +97,23 @@ var testBalCases = []testBalCase{
 
 func TestBalanceLedger(t *testing.T) {
 	for _, tc := range testBalCases {
-		b := bytes.NewBufferString(tc.data)
-		transactions, err := ParseLedger(b)
-		bals := GetBalances(transactions, []string{})
-		if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
-			t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
-		}
-		exp, _ := json.Marshal(tc.balances)
-		got, _ := json.Marshal(bals)
-		if string(exp) != string(got) {
-			t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
-		}
+		t.Run(
+			tc.name,
+			func(t *testing.T) {
+				b := bytes.NewBufferString(tc.data)
+				transactions, err := ParseLedger(b)
+				bals := GetBalances(transactions, []string{})
+				if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
+					t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
+				}
+				exp, _ := json.Marshal(tc.balances)
+				got, _ := json.Marshal(bals)
+				if string(exp) != string(got) {
+					t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
+				}
+
+			},
+		)
 	}
 }
 

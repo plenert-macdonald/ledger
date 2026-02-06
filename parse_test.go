@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"reflect"
 	"sync"
 	"testing"
@@ -713,8 +714,7 @@ func TestAccount_parsePosting(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := Account{}
-			gotErr := a.parsePosting(tt.trimmedLine)
+			a, gotErr := parsePosting(tt.trimmedLine)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("parsePosting() failed: %v", gotErr)
@@ -728,6 +728,126 @@ func TestAccount_parsePosting(t *testing.T) {
 			}
 			if tt.wantErr {
 				t.Fatal("parsePosting() succeeded unexpectedly")
+			}
+		})
+	}
+}
+
+func Test_parser_nextBlock(t *testing.T) {
+	tests := []struct {
+		name string // description of this test case
+		// Named input parameters for receiver constructor.
+		ledgerReader io.Reader
+		want         []block
+		wantErr      bool
+	}{
+		{
+			name: "simple",
+			ledgerReader: bytes.NewBufferString(`; test
+account bam:bam
+	subacc line  ; sub comment
+	another subacc line
+
+1970/01/01 Payee
+	Assets       50
+	Expenses
+
+1970/02/30 Error  ; oops
+	Assets   30
+	Expenses
+
+1970/01/01bbafafdaf;bad comment
+	Assets 20
+	Expenses
+
+account endofledger`),
+			want: []block{
+				{
+					lineNum:  0,
+					filename: "simple",
+					body: []string{
+						"; test",
+						"account bam:bam",
+						"subacc line  ; sub comment",
+						"another subacc line",
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lp := newParser(tt.ledgerReader, tt.name)
+			got, gotErr := lp.nextBlock()
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("nextBlock() failed: %v", gotErr)
+				}
+				return
+			}
+			if tt.wantErr {
+				t.Fatal("nextBlock() succeeded unexpectedly")
+			}
+			a, _ := json.Marshal(got.body)
+			b, _ := json.Marshal(tt.want[0].body)
+			if string(a) != string(b) {
+				t.Errorf("nextBlock() = %s, want %s", string(a), string(b))
+			}
+		})
+	}
+}
+
+func Test_block_transaction(t *testing.T) {
+	tests := []struct {
+		name string
+		in   block
+		out  Transaction
+	}{
+		{
+			name: "simple",
+			in: block{
+				lineNum:  0,
+				filename: "simple",
+				body: []string{
+					//"; test",
+					"1970/01/01 Payee",
+					"Assets       50",
+					"Expenses",
+				},
+			},
+			out: Transaction{
+				Payee: "Payee",
+				Date:  time.Unix(0, 0).UTC(),
+				AccountChanges: []Account{
+					{
+						Name:    "Assets",
+						Balance: decimal.NewFromFloat(50),
+					},
+					{
+						Name:    "Expenses",
+						Balance: decimal.NewFromFloat(-50),
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before, after, comment, err := tt.in.header()
+			if err != nil {
+				t.Error(err)
+			}
+			if tt.in.headingLine != 0 {
+				t.Errorf("headingLine is %d not %d", tt.in.headingLine, 0)
+			}
+
+			trx, err := tt.in.transaction(before, after, comment)
+			if err != nil {
+				t.Error(err)
+			}
+
+			if trx != nil && !reflect.DeepEqual(*trx, tt.out) {
+				t.Errorf("block.transaction() = %+v, want %+v", *trx, tt.out)
 			}
 		})
 	}
