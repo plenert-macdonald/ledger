@@ -39,7 +39,7 @@ func ParseLedgerFile(filename string) (generalLedger []*Transaction, err error) 
 
 	for result := range results {
 		if result.error != nil {
-			return nil, err
+			return nil, result.error
 		}
 		generalLedger = append(generalLedger, result.Transaction)
 	}
@@ -58,7 +58,7 @@ func ParseLedger(ledgerReader io.Reader) (generalLedger []*Transaction, err erro
 
 	for result := range results {
 		if result.error != nil {
-			return nil, err
+			return nil, result.error
 		}
 		generalLedger = append(generalLedger, result.Transaction)
 	}
@@ -198,8 +198,8 @@ func parseLedger(filename string, ledgerReader io.Reader, results chan result, c
 				ifile, _ := os.Open(incpath)
 				defer ifile.Close()
 
-				incresults := make(chan result, 100)
-				go parseLedger(incpath, ifile, incresults, ctx)
+				incresults := make(chan result, 1000)
+				parseLedger(incpath, ifile, incresults, ctx)
 				for result := range incresults {
 					results <- result
 				}
