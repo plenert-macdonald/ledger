@@ -181,6 +181,7 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 	transDate, _, err := date.ParseAndGetLayout(dateString)
 	if err != nil {
 		err = fmt.Errorf("unable to parse date(%s): %w", dateString, err)
+		return nil, err
 	}
 	trans.Date = transDate
 

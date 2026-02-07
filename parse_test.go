@@ -854,9 +854,11 @@ account endofledger`),
 
 func Test_block_transaction(t *testing.T) {
 	tests := []struct {
-		name string
-		in   block
-		out  Transaction
+		name        string
+		in          block
+		out         *Transaction
+		headingLine int
+		err         error
 	}{
 		{
 			name: "simple",
@@ -870,7 +872,8 @@ func Test_block_transaction(t *testing.T) {
 					"Expenses",
 				},
 			},
-			out: Transaction{
+			headingLine: 1,
+			out: &Transaction{
 				Payee:    "Payee",
 				Date:     time.Unix(0, 0).UTC(),
 				Comments: []string{"; test"},
@@ -886,6 +889,20 @@ func Test_block_transaction(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "bad payee date",
+			in: block{
+				lineNum:  1,
+				filename: "bad payee date",
+				body: []string{
+					"1970/02/31 Payee",
+					"Expense/test  (123 * 3)",
+					"Assets      123",
+				},
+			},
+			headingLine: 0,
+			err:         errors.New(`unable to parse date(1970/02/31): parsing time "1970/02/31": extra text: "1970/02/31"`),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -893,19 +910,19 @@ func Test_block_transaction(t *testing.T) {
 			if err != nil {
 				t.Error(err)
 			}
-			if tt.in.headingLine != 1 {
-				t.Errorf("headingLine is %d not %d", tt.in.headingLine, 1)
+			if tt.in.headingLine != tt.headingLine {
+				t.Errorf("headingLine is %d not %d", tt.in.headingLine, tt.headingLine)
 			}
 
 			trx, err := tt.in.transaction(before, after, comment)
-			if err != nil {
-				t.Error(err)
-			}
-
-			a, _ := json.MarshalIndent(*trx, "", " ")
-			b, _ := json.MarshalIndent(tt.out, "", " ")
-			if trx != nil && string(a) != string(b) {
-				t.Errorf("block.transaction() = got %+v, want %+v", string(a), string(b))
+			if (err != nil) && (tt.err == nil || err.Error() != tt.err.Error()) {
+				t.Errorf("got err = '%v', want '%v', equal = %v", err, tt.err, err.Error() == tt.err.Error())
+			} else {
+				a, _ := json.MarshalIndent(trx, "", " ")
+				b, _ := json.MarshalIndent(tt.out, "", " ")
+				if string(a) != string(b) {
+					t.Errorf("block.transaction() = got %+v, want %+v", string(a), string(b))
+				}
 			}
 		})
 	}
