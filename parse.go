@@ -120,9 +120,7 @@ func (p *parser) init() {
 
 func (lp *parser) scan() bool {
 	success := lp.scanner.Scan()
-	if success {
-		lp.line += 1
-	}
+	lp.line += 1
 	return success
 }
 
@@ -136,22 +134,20 @@ type block struct {
 func (lp *parser) nextBlock() (*block, error) {
 	b := &block{filename: lp.filename, body: []string{}}
 
-	setLine := false
 	for lp.scan() {
 		line := strings.TrimSpace(lp.scanner.Text())
 
 		if len(line) > 0 {
-			if !setLine {
-				setLine = true
-				b.lineNum = lp.line
-			}
 			b.body = append(b.body, line)
 		} else if len(b.body) > 0 {
+			b.lineNum = lp.line - len(b.body)
 			return b, nil
 		}
 	}
 
 	if len(b.body) > 0 {
+		//
+		b.lineNum = lp.line - len(b.body)
 		return b, nil
 	}
 	return nil, ErrNoMoreBlocks

@@ -747,6 +747,7 @@ account bam:bam
 	subacc line  ; sub comment
 	another subacc line
 
+; test
 1970/01/01 Payee
 	Assets       50
 	Expenses
@@ -762,7 +763,7 @@ account bam:bam
 account endofledger`),
 			want: []block{
 				{
-					lineNum:  0,
+					lineNum:  1,
 					filename: "simple",
 					body: []string{
 						"; test",
@@ -771,26 +772,81 @@ account endofledger`),
 						"another subacc line",
 					},
 				},
+				{
+					lineNum:  6,
+					filename: "simple",
+					body: []string{
+						"; test",
+						"1970/01/01 Payee",
+						"Assets       50",
+						"Expenses",
+					},
+				},
+			},
+		},
+		{
+			name: "single",
+			ledgerReader: bytes.NewBufferString(`; test
+1970/01/01 Payee
+	Assets       50
+	Expenses
+`),
+			want: []block{
+				{
+					lineNum:  1,
+					filename: "simple",
+					body: []string{
+						"; test",
+						"1970/01/01 Payee",
+						"Assets       50",
+						"Expenses",
+					},
+				},
+			},
+		},
+		{
+			name: "bad payee",
+			ledgerReader: bytes.NewBufferString(`1970/01/01Payee
+	Expense/test  (123 * 3)
+	Assets      123
+`),
+			want: []block{
+				{
+					lineNum:  1,
+					filename: "simple",
+					body: []string{
+						"1970/01/01Payee",
+						"Expense/test  (123 * 3)",
+						"Assets      123",
+					},
+				},
 			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			lp := newParser(tt.ledgerReader, tt.name)
-			got, gotErr := lp.nextBlock()
-			if gotErr != nil {
-				if !tt.wantErr {
-					t.Errorf("nextBlock() failed: %v", gotErr)
+			for _, want := range tt.want {
+				got, gotErr := lp.nextBlock()
+				if gotErr != nil {
+					if !tt.wantErr {
+						t.Errorf("nextBlock() failed: %v", gotErr)
+					}
+					return
 				}
-				return
-			}
-			if tt.wantErr {
-				t.Fatal("nextBlock() succeeded unexpectedly")
-			}
-			a, _ := json.Marshal(got.body)
-			b, _ := json.Marshal(tt.want[0].body)
-			if string(a) != string(b) {
-				t.Errorf("nextBlock() = %s, want %s", string(a), string(b))
+				if tt.wantErr {
+					t.Fatal("nextBlock() succeeded unexpectedly")
+				}
+
+				if got.lineNum != want.lineNum {
+					t.Errorf("nextBlock().lineNum = %d, want %d", got.lineNum, want.lineNum)
+				}
+
+				a, _ := json.Marshal(got.body)
+				b, _ := json.Marshal(want.body)
+				if string(a) != string(b) {
+					t.Errorf("nextBlock() = %s, want %s", string(a), string(b))
+				}
 			}
 		})
 	}
@@ -805,18 +861,19 @@ func Test_block_transaction(t *testing.T) {
 		{
 			name: "simple",
 			in: block{
-				lineNum:  0,
+				lineNum:  1,
 				filename: "simple",
 				body: []string{
-					//"; test",
+					"; test",
 					"1970/01/01 Payee",
 					"Assets       50",
 					"Expenses",
 				},
 			},
 			out: Transaction{
-				Payee: "Payee",
-				Date:  time.Unix(0, 0).UTC(),
+				Payee:    "Payee",
+				Date:     time.Unix(0, 0).UTC(),
+				Comments: []string{"; test"},
 				AccountChanges: []Account{
 					{
 						Name:    "Assets",
@@ -836,8 +893,8 @@ func Test_block_transaction(t *testing.T) {
 			if err != nil {
 				t.Error(err)
 			}
-			if tt.in.headingLine != 0 {
-				t.Errorf("headingLine is %d not %d", tt.in.headingLine, 0)
+			if tt.in.headingLine != 1 {
+				t.Errorf("headingLine is %d not %d", tt.in.headingLine, 1)
 			}
 
 			trx, err := tt.in.transaction(before, after, comment)
