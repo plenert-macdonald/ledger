@@ -914,7 +914,7 @@ func Test_block_transaction(t *testing.T) {
 				t.Errorf("headingLine is %d not %d", tt.in.headingLine, tt.headingLine)
 			}
 
-			trx, err := tt.in.transaction(before, after, comment)
+			trx, err, _ := tt.in.transaction(before, after, comment)
 			if (err != nil) && (tt.err == nil || err.Error() != tt.err.Error()) {
 				t.Errorf("got err = '%v', want '%v', equal = %v", err, tt.err, err.Error() == tt.err.Error())
 			} else {

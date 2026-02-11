@@ -176,12 +176,12 @@ func (b *block) header() (string, string, string, error) {
 	return "", "", "", ErrEmptyBlock
 }
 
-func (b block) transaction(dateString, payeeString, payeeComment string) (*Transaction, error) {
+func (b block) transaction(dateString, payeeString, payeeComment string) (*Transaction, error, int) {
 	trans := &Transaction{}
 	transDate, _, err := date.ParseAndGetLayout(dateString)
 	if err != nil {
 		err = fmt.Errorf("unable to parse date(%s): %w", dateString, err)
-		return nil, err
+		return nil, err, 0
 	}
 	trans.Date = transDate
 
@@ -216,7 +216,7 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 		posting, err := parsePosting(line)
 		posting.Comment = postingComment
 		if err != nil {
-			return nil, err
+			return nil, err, i
 		}
 		trans.AccountChanges = append(trans.AccountChanges, *posting)
 
@@ -237,19 +237,19 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 	}
 
 	if len(trans.AccountChanges) < 2 {
-		return nil, ErrTooFewPostings
+		return nil, ErrTooFewPostings, len(b.body) - 1
 	}
 
 	if !transBal.IsZero() {
 		switch numEmpty {
 		case 0:
-			return nil, errors.New("unable to balance transaction: no empty account to place extra balance")
+			return nil, errors.New("unable to balance transaction: no empty account to place extra balance"), len(b.body) - 1
 		case 1:
 			// If there is a single empty account, then it is obvious where to
 			// place the remaining balance.
 			trans.AccountChanges[emptyAccIndex].Balance = transBal.Neg()
 		default:
-			return nil, errors.New("unable to balance transaction: more than one account empty")
+			return nil, errors.New("unable to balance transaction: more than one account empty"), len(b.body) - 1
 		}
 	}
 
@@ -260,7 +260,7 @@ func (b block) transaction(dateString, payeeString, payeeComment string) (*Trans
 		trans.Comments = comments
 	}
 
-	return trans, nil
+	return trans, nil, 0
 }
 
 func parseLedger(filename string, ledgerReader io.Reader, results chan result, ctx context.Context) {
@@ -318,11 +318,11 @@ func parseLedger(filename string, ledgerReader io.Reader, results chan result, c
 				}
 			}
 		default:
-			trans, transErr := b.transaction(before, after, comment)
+			trans, transErr, errLine := b.transaction(before, after, comment)
 			if transErr != nil {
 				results <- result{
 					nil,
-					fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, b.lineNum, transErr),
+					fmt.Errorf("%s:%d: unable to parse transaction: %w", filename, b.lineNum+errLine, transErr),
 				}
 				continue
 			}
