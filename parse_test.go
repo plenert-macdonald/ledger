@@ -590,6 +590,33 @@ account Assets
 		},
 		nil,
 	},
+	{
+		"conversion implicit rate USD",
+		`1970/01/01 Converted EUR to USD
+    assets:wise                                                EUR      -1000
+    assets:wise                                                USD       2000
+`,
+		[]*Transaction{
+			{
+				Payee: "Converted EUR to USD",
+				Date:  time.Unix(0, 0).UTC(),
+				AccountChanges: []Account{
+					{
+						Name:     "assets:wise",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-1000.0),
+					},
+					{
+						Name:             "assets:wise",
+						Currency:         "USD",
+						Balance:          decimal.NewFromFloat(2000.0),
+						ConversionFactor: p(decimal.NewFromFloat(0.5)),
+					},
+				},
+			},
+		},
+		nil,
+	},
 }
 
 func p(d decimal.Decimal) *decimal.Decimal {
