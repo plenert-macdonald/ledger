@@ -92,7 +92,6 @@ type parser struct {
 
 	transactions []Transaction
 	ctIdx        int
-	postings     []Account
 	cpIdx        int
 }
 
@@ -101,14 +100,12 @@ const preAllocWarn = 10
 
 func (p *parser) init() {
 	p.transactions = make([]Transaction, preAllocSize)
-	p.postings = make([]Account, preAllocSize*3)
 	p.ctIdx = 0
 	p.cpIdx = 0
 }
 
 func (p *parser) grow() {
-	if len(p.transactions)-p.ctIdx < preAllocWarn ||
-		len(p.postings)-p.cpIdx < (preAllocWarn*3) {
+	if len(p.transactions)-p.ctIdx < preAllocWarn {
 		p.init()
 	}
 }
@@ -317,14 +314,15 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 			break
 		}
 
-		_ = lp.postings[lp.cpIdx+accIndex].parsePosting(trimmedLine, postingComment)
+		posting := Account{}
+		posting.parsePosting(trimmedLine, postingComment)
+		trans.AccountChanges = append(trans.AccountChanges, posting)
 		accIndex++
 	}
 
 	trans.Payee = payeeString
 	trans.Date = transDate
 	trans.PayeeComment = payeeComment
-	trans.AccountChanges = lp.postings[lp.cpIdx : lp.cpIdx+accIndex]
 	if len(comments) > 0 {
 		trans.Comments = comments
 	}
