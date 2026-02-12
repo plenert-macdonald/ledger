@@ -120,6 +120,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 
 	var tlist []*Transaction
 
+	comments := []string{}
 	for lp.scanner.Scan() {
 		// remove heading and tailing space from the line
 		trimmedLine := strings.TrimSpace(lp.scanner.Text())
@@ -135,7 +136,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 		// Skip empty lines
 		if len(trimmedLine) == 0 {
 			if len(currentComment) > 0 {
-				lp.comments = append(lp.comments, currentComment)
+				comments = append(comments, currentComment)
 			}
 			continue
 		}
@@ -147,7 +148,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 				return true
 			}
 			if len(currentComment) > 0 {
-				lp.comments = append(lp.comments, currentComment)
+				comments = append(comments, currentComment)
 			}
 			continue
 		}
@@ -177,7 +178,8 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 				return stop
 			}
 		default:
-			trans, transErr := lp.parseTransaction(before, after, currentComment)
+			trans, transErr := lp.parseTransaction(before, after, currentComment, comments)
+			comments = []string{}
 			if transErr != nil {
 				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), transErr)) {
 					return true
@@ -224,7 +226,7 @@ func (lp *parser) parseDate(dateString string) (transDate time.Time, err error) 
 	return
 }
 
-func (a *Account) parsePosting(trimmedLine string) (err error) {
+func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 	trimmedLine = strings.TrimSpace(trimmedLine)
 
 	// Regex groups:
@@ -249,6 +251,7 @@ func (a *Account) parsePosting(trimmedLine string) (err error) {
 
 	a.Name = m[1]
 	a.Currency = m[2]
+	a.Comment = comment
 
 	if m[3] != "" {
 		bal, err := compute.Evaluate(m[3])
@@ -278,7 +281,7 @@ func (a *Account) parsePosting(trimmedLine string) (err error) {
 	return
 }
 
-func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string) (trans *Transaction, err error) {
+func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string, comments []string) (trans *Transaction, err error) {
 	transDate, derr := lp.parseDate(dateString)
 	if derr != nil {
 		return nil, derr
@@ -286,42 +289,50 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string)
 
 	var accIndex int
 
+	lines := []string{}
 	for lp.scanner.Scan() {
 		trimmedLine := lp.scanner.Text()
+		lines = append(lines, trimmedLine)
+		if len(trimmedLine) == 0 {
+			break
+		}
+	}
 
+	trans = &Transaction{}
+	for _, trimmedLine := range lines {
+		postingComment := ""
 		// handle comments
 		if commentIdx := strings.Index(trimmedLine, ";"); commentIdx >= 0 {
 			currentComment := trimmedLine[commentIdx:]
 			trimmedLine = trimmedLine[:commentIdx]
 			trimmedLine = strings.TrimSpace(trimmedLine)
 			if len(trimmedLine) == 0 {
-				lp.comments = append(lp.comments, currentComment)
+				comments = append(comments, currentComment)
 				continue
 			}
-			lp.postings[lp.cpIdx+accIndex].Comment = currentComment
+			postingComment = currentComment
 		}
 
 		if len(trimmedLine) == 0 {
 			break
 		}
 
-		_ = lp.postings[lp.cpIdx+accIndex].parsePosting(trimmedLine)
+		_ = lp.postings[lp.cpIdx+accIndex].parsePosting(trimmedLine, postingComment)
 		accIndex++
 	}
 
-	lp.transactions[lp.ctIdx].Payee = payeeString
-	lp.transactions[lp.ctIdx].Date = transDate
-	lp.transactions[lp.ctIdx].PayeeComment = payeeComment
-	lp.transactions[lp.ctIdx].AccountChanges = lp.postings[lp.cpIdx : lp.cpIdx+accIndex]
-	lp.transactions[lp.ctIdx].Comments = lp.comments
-
-	trans = &lp.transactions[lp.ctIdx]
+	trans.Payee = payeeString
+	trans.Date = transDate
+	trans.PayeeComment = payeeComment
+	trans.AccountChanges = lp.postings[lp.cpIdx : lp.cpIdx+accIndex]
+	if len(comments) > 0 {
+		trans.Comments = comments
+	}
 
 	if err = trans.IsBalanced(); err != nil {
 		return nil, err
 	}
 
-	lp.comments = nil
 	lp.cpIdx += accIndex
 	lp.ctIdx++
 

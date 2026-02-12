@@ -797,7 +797,7 @@ func TestAccount_parsePosting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := Account{}
-			gotErr := a.parsePosting(tt.trimmedLine)
+			gotErr := a.parsePosting(tt.trimmedLine, "")
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("parsePosting() failed: %v", gotErr)
