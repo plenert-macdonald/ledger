@@ -95,6 +95,73 @@ func TestIsBalanced(t *testing.T) {
 			wantErr:      nil,
 			wantBalances: []decimal.Decimal{decimal.NewFromInt(-10), decimal.NewFromInt(10)},
 		},
+		{
+			name: "two currency implicit conversion factor inferred",
+			tx: &Transaction{
+				AccountChanges: []Account{
+					{
+						Name:     "Assets:Bank:USD",
+						Currency: "USD",
+						Balance:  decimal.NewFromInt(-10),
+					},
+					{
+						Name:     "Assets:Bank:EUR",
+						Currency: "EUR",
+						Balance:  decimal.NewFromInt(5),
+					},
+				},
+			},
+			wantErr:      nil,
+			wantBalances: nil,
+		},
+		{
+			name: "two currency implicit conversion factor inferred multiple",
+			tx: &Transaction{
+				AccountChanges: []Account{
+					{
+						Name:     "Assets:Bank:USD",
+						Currency: "USD",
+						Balance:  decimal.NewFromInt(-10),
+					},
+					{
+						Name:     "Assets:Bank:EUR",
+						Currency: "EUR",
+						Balance:  decimal.NewFromInt(5),
+					},
+					{
+						Name:     "Assets:otherBank:EUR",
+						Currency: "EUR",
+						Balance:  decimal.NewFromInt(3),
+					},
+				},
+			},
+			wantErr:      nil,
+			wantBalances: nil,
+		},
+		{
+			name: "does not infer conversion factor for three currencies",
+			tx: &Transaction{
+				AccountChanges: []Account{
+					{
+						Name:     "Assets:Bank:USD",
+						Currency: "USD",
+						Balance:  decimal.NewFromInt(-10),
+					},
+					{
+						Name:     "Assets:Bank:EUR",
+						Currency: "EUR",
+						Balance:  decimal.NewFromInt(5),
+					},
+					{
+						Name:     "Assets:Bank:GBP",
+						Currency: "GBP",
+						Balance:  decimal.NewFromInt(3),
+					},
+				},
+			},
+			wantErr:      ErrNoEmptyAccountForExtraBalance,
+			wantBalances: nil,
+		},
 	}
 
 	for _, tt := range tests {
