@@ -89,30 +89,10 @@ type parser struct {
 	strPrevDate string
 	prevDateErr error
 	prevDate    time.Time
-
-	transactions []Transaction
-	ctIdx        int
-	cpIdx        int
-}
-
-const preAllocSize = 100000
-const preAllocWarn = 10
-
-func (p *parser) init() {
-	p.transactions = make([]Transaction, preAllocSize)
-	p.ctIdx = 0
-	p.cpIdx = 0
-}
-
-func (p *parser) grow() {
-	if len(p.transactions)-p.ctIdx < preAllocWarn {
-		p.init()
-	}
 }
 
 func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
 	var lp parser
-	lp.init()
 	lp.scanner = newLineScanner(filename, ledgerReader)
 
 	var tlist []*Transaction
@@ -284,8 +264,6 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 		return nil, derr
 	}
 
-	var accIndex int
-
 	lines := []string{}
 	for lp.scanner.Scan() {
 		trimmedLine := lp.scanner.Text()
@@ -317,7 +295,6 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 		posting := Account{}
 		posting.parsePosting(trimmedLine, postingComment)
 		trans.AccountChanges = append(trans.AccountChanges, posting)
-		accIndex++
 	}
 
 	trans.Payee = payeeString
@@ -330,11 +307,6 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 	if err = trans.IsBalanced(); err != nil {
 		return nil, err
 	}
-
-	lp.cpIdx += accIndex
-	lp.ctIdx++
-
-	lp.grow()
 
 	return
 }
