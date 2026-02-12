@@ -133,29 +133,21 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 		case "account":
 			lp.skipAccount()
 		case "include":
-			paths, _ := filepath.Glob(filepath.Join(filepath.Dir(lp.scanner.Name()), after))
-			if len(paths) < 1 {
-				callback(nil, fmt.Errorf("%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found")))
-				return true
-			}
-			var wg sync.WaitGroup
-			for _, incpath := range paths {
-				wg.Add(1)
-				go func(ipath string) {
-					ifile, _ := os.Open(ipath)
-					defer ifile.Close()
-					if parseLedger(ipath, ifile, callback) {
-						stop = true
-					}
-					wg.Done()
-				}(incpath)
-			}
-			wg.Wait()
+			stop := lp.include(after, callback)
 			if stop {
 				return stop
 			}
 		default:
-			trans, transErr := lp.parseTransaction(before, after, currentComment, comments)
+			transDate, derr := lp.parseDate(before)
+			if derr != nil {
+				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), derr)) {
+					return true
+				}
+				continue
+			}
+
+			block := lp.parseBlock(transDate, after, currentComment, comments)
+			trans, transErr := block.parseTransaction()
 			comments = []string{}
 			if transErr != nil {
 				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), transErr)) {
@@ -177,6 +169,28 @@ func (lp *parser) skipAccount() {
 			return
 		}
 	}
+}
+
+func (lp *parser) include(after string, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
+	paths, _ := filepath.Glob(filepath.Join(filepath.Dir(lp.scanner.Name()), after))
+	if len(paths) < 1 {
+		callback(nil, fmt.Errorf("%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found")))
+		return true
+	}
+	var wg sync.WaitGroup
+	for _, incpath := range paths {
+		wg.Add(1)
+		go func(ipath string) {
+			ifile, _ := os.Open(ipath)
+			defer ifile.Close()
+			if parseLedger(ipath, ifile, callback) {
+				stop = true
+			}
+			wg.Done()
+		}(incpath)
+	}
+	wg.Wait()
+	return
 }
 
 func (lp *parser) parseDate(dateString string) (transDate time.Time, err error) {
@@ -258,12 +272,15 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 	return
 }
 
-func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string, comments []string) (trans *Transaction, err error) {
-	transDate, derr := lp.parseDate(dateString)
-	if derr != nil {
-		return nil, derr
-	}
+type block struct {
+	transDate    time.Time
+	payeeString  string
+	payeeComment string
+	comments     []string
+	lines        []string
+}
 
+func (lp *parser) parseBlock(transDate time.Time, payeeString, payeeComment string, comments []string) block {
 	lines := []string{}
 	for lp.scanner.Scan() {
 		trimmedLine := lp.scanner.Text()
@@ -273,8 +290,18 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 		}
 	}
 
+	return block{
+		transDate:    transDate,
+		payeeString:  payeeString,
+		payeeComment: payeeComment,
+		comments:     comments,
+		lines:        lines,
+	}
+}
+
+func (b *block) parseTransaction() (trans *Transaction, err error) {
 	trans = &Transaction{}
-	for _, trimmedLine := range lines {
+	for _, trimmedLine := range b.lines {
 		postingComment := ""
 		// handle comments
 		if commentIdx := strings.Index(trimmedLine, ";"); commentIdx >= 0 {
@@ -282,7 +309,7 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 			trimmedLine = trimmedLine[:commentIdx]
 			trimmedLine = strings.TrimSpace(trimmedLine)
 			if len(trimmedLine) == 0 {
-				comments = append(comments, currentComment)
+				b.comments = append(b.comments, currentComment)
 				continue
 			}
 			postingComment = currentComment
@@ -297,11 +324,11 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string,
 		trans.AccountChanges = append(trans.AccountChanges, posting)
 	}
 
-	trans.Payee = payeeString
-	trans.Date = transDate
-	trans.PayeeComment = payeeComment
-	if len(comments) > 0 {
-		trans.Comments = comments
+	trans.Payee = b.payeeString
+	trans.Date = b.transDate
+	trans.PayeeComment = b.payeeComment
+	if len(b.comments) > 0 {
+		trans.Comments = b.comments
 	}
 
 	if err = trans.IsBalanced(); err != nil {
