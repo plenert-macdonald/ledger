@@ -563,6 +563,33 @@ account Assets
 		},
 		nil,
 	},
+	{
+		"conversion implicit rate",
+		`1970/01/01 Converted CZK to EUR
+    Assets:Wise:CZK                                                   CZK -2000.00
+    Assets:Wise:EUR                                                   EUR  1000.00
+`,
+		[]*Transaction{
+			{
+				Payee: "Converted CZK to EUR",
+				Date:  time.Unix(0, 0).UTC(),
+				AccountChanges: []Account{
+					{
+						Name:     "Assets:Wise:CZK",
+						Currency: "CZK",
+						Balance:  decimal.NewFromFloat(-2000.0),
+					},
+					{
+						Name:             "Assets:Wise:EUR",
+						Currency:         "EUR",
+						Balance:          decimal.NewFromFloat(1000.0),
+						ConversionFactor: p(decimal.NewFromInt(2)),
+					},
+				},
+			},
+		},
+		nil,
+	},
 }
 
 func p(d decimal.Decimal) *decimal.Decimal {
