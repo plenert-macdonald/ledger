@@ -97,6 +97,7 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 
 	var tlist []*Transaction
 
+	blocks := []block{}
 	comments := []string{}
 	for lp.scanner.Scan() {
 		// remove heading and tailing space from the line
@@ -146,17 +147,20 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 				continue
 			}
 
-			block := lp.parseBlock(transDate, after, currentComment, comments)
-			trans, transErr := block.parseTransaction()
-			comments = []string{}
-			if transErr != nil {
-				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), transErr)) {
-					return true
-				}
-				continue
-			}
-			tlist = append(tlist, trans)
+			blocks = append(blocks, lp.parseBlock(transDate, after, currentComment, comments))
 		}
+	}
+
+	for _, block := range blocks {
+		trans, transErr := block.parseTransaction()
+		comments = []string{}
+		if transErr != nil {
+			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", block.filename, block.lineNum, transErr)) {
+				return true
+			}
+			continue
+		}
+		tlist = append(tlist, trans)
 	}
 	callback(tlist, nil)
 	return false
@@ -278,6 +282,8 @@ type block struct {
 	payeeComment string
 	comments     []string
 	lines        []string
+	filename     string
+	lineNum      int
 }
 
 func (lp *parser) parseBlock(transDate time.Time, payeeString, payeeComment string, comments []string) block {
@@ -296,6 +302,8 @@ func (lp *parser) parseBlock(transDate time.Time, payeeString, payeeComment stri
 		payeeComment: payeeComment,
 		comments:     comments,
 		lines:        lines,
+		filename:     lp.scanner.Name(),
+		lineNum:      lp.scanner.LineNumber(),
 	}
 }
 
