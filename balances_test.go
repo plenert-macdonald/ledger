@@ -160,8 +160,7 @@ func BenchmarkGetBalances(b *testing.B) {
 			},
 		})
 	}
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		GetBalances(trans, []string{})
 	}
 }
