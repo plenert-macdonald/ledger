@@ -284,9 +284,6 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string)
 		return nil, derr
 	}
 
-	transBal := decimal.Zero
-	var numEmpty int
-	var emptyAccIndex int
 	var accIndex int
 
 	for lp.scanner.Scan() {
@@ -309,40 +306,7 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string)
 		}
 
 		_ = lp.postings[lp.cpIdx+accIndex].parsePosting(trimmedLine)
-
-		if lp.postings[lp.cpIdx+accIndex].Balance.IsZero() {
-			numEmpty++
-			emptyAccIndex = accIndex
-		}
-
-		if lp.postings[lp.cpIdx+accIndex].Converted != nil {
-			transBal = transBal.Add(lp.postings[lp.cpIdx+accIndex].Converted.Neg())
-		} else if lp.postings[lp.cpIdx+accIndex].ConversionFactor != nil {
-			transBal = transBal.Add(lp.postings[lp.cpIdx+accIndex].Balance.Mul(
-				*lp.postings[lp.cpIdx+accIndex].ConversionFactor,
-			))
-		} else {
-			transBal = transBal.Add(lp.postings[lp.cpIdx+accIndex].Balance)
-		}
 		accIndex++
-	}
-
-	if accIndex < 2 {
-		err = errors.New("need at least two postings")
-		return
-	}
-
-	if !transBal.IsZero() {
-		switch numEmpty {
-		case 0:
-			return nil, errors.New("unable to balance transaction: no empty account to place extra balance")
-		case 1:
-			// If there is a single empty account, then it is obvious where to
-			// place the remaining balance.
-			lp.postings[lp.cpIdx+emptyAccIndex].Balance = transBal.Neg()
-		default:
-			return nil, errors.New("unable to balance transaction: more than one account empty")
-		}
 	}
 
 	lp.transactions[lp.ctIdx].Payee = payeeString
@@ -352,6 +316,10 @@ func (lp *parser) parseTransaction(dateString, payeeString, payeeComment string)
 	lp.transactions[lp.ctIdx].Comments = lp.comments
 
 	trans = &lp.transactions[lp.ctIdx]
+
+	if err = trans.IsBalanced(); err != nil {
+		return nil, err
+	}
 
 	lp.comments = nil
 	lp.cpIdx += accIndex
