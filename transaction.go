@@ -167,11 +167,11 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 		return nil
 	}
 
-	factor := sumBase.Neg().Div(sumOtherRaw)
 	for _, idx := range groups[otherCurIdx].indices {
 		acc := &t.AccountChanges[idx]
 		if acc.ConversionFactor == nil && acc.Converted == nil {
-			acc.ConversionFactor = &factor
+			conv := acc.Balance.Mul(sumBase).Div(sumOtherRaw)
+			acc.Converted = &conv
 		}
 	}
 

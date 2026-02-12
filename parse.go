@@ -148,12 +148,12 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 			}
 
 			blocks = append(blocks, lp.parseBlock(transDate, after, currentComment, comments))
+			comments = []string{}
 		}
 	}
 
 	for _, block := range blocks {
 		trans, transErr := block.parseTransaction()
-		comments = []string{}
 		if transErr != nil {
 			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", block.filename, block.lineNum, transErr)) {
 				return true

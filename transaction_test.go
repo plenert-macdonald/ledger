@@ -162,6 +162,25 @@ func TestIsBalanced(t *testing.T) {
 			wantErr:      ErrNoEmptyAccountForExtraBalance,
 			wantBalances: nil,
 		},
+		{
+			name: "decimal precision bug",
+			tx: &Transaction{
+				AccountChanges: []Account{
+					{
+						Name:     "Assets:Wise:CZK",
+						Currency: "CZK",
+						Balance:  decimal.NewFromFloat(-2003.0),
+					},
+					{
+						Name:     "Assets:Wise:EUR",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(1000.0),
+					},
+				},
+			},
+			wantErr:      nil,
+			wantBalances: nil,
+		},
 	}
 
 	for _, tt := range tests {
