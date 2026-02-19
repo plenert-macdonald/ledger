@@ -5,69 +5,65 @@ import (
 	_ "embed"
 	"testing"
 
-	"github.com/howeyc/ledger/ledger/qfx"
+	"github.com/howeyc/ledger/ledger/qif"
 )
 
 //go:embed sample.qif
-var qfxSample []byte
+var qifSample []byte
 
-func TestParseQFX(t *testing.T) {
-	entries, err := qfx.ParseQFX(bytes.NewBuffer(qfxSample))
+func TestParseQIF(t *testing.T) {
+	entries, err := qif.ParseQIF(bytes.NewBuffer(qifSample))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 26 {
-		t.Fatalf("Expected 26 entries, got %d", len(entries))
+
+	if len(entries) != 3 {
+		t.Fatalf("Expected 3 entries, got %d", len(entries))
 	}
 
-	// Spot-check a few transactions to ensure fields are parsed correctly.
 	tests := []struct {
-		index    int
-		trnType  string
-		dtPosted string
-		trnAmt   string
-		fitID    string
-		memo     string
+		index   int
+		typ     string
+		date    string
+		amount  string
+		payee   string
+		memo    string
+		cat     string
+		splitCt string
+		splitAm string
 	}{
 		{
-			index:    0,
-			trnType:  "CREDIT",
-			dtPosted: "20251231000000.000",
-			trnAmt:   "0.13",
-			fitID:    "202512311",
-			memo:     "IOD INTEREST PAID",
+			index:   0,
+			typ:     "Cash",
+			date:    "08/14/2024",
+			amount:  "15.00",
+			payee:   "",
+			memo:    "~@~CLD:1723446000~@~",
+			cat:     "Bank Deposit to PP Account ",
+			splitCt: "Bank Deposit to PP Account ",
+			splitAm: "15.00",
 		},
 		{
-			index:    6,
-			trnType:  "DEBIT",
-			dtPosted: "20250829000000.000",
-			trnAmt:   "-30",
-			fitID:    "202508292",
-			memo:     "Minimum balance charge",
+			index:   1,
+			typ:     "Cash",
+			date:    "08/14/2024",
+			amount:  "-15.00",
+			payee:   "9171-5573 Quebec Inc",
+			memo:    "VOIPMS15",
+			cat:     "PreApproved Payment Bill User Payment",
+			splitCt: "PreApproved Payment Bill User Payment",
+			splitAm: "-15.00",
 		},
 		{
-			index:    14,
-			trnType:  "DEBIT",
-			dtPosted: "20250609000000.000",
-			trnAmt:   "-200",
-			fitID:    "202506091",
-			memo:     "ACH Withdrawal CAPITAL ONE",
-		},
-		{
-			index:    21,
-			trnType:  "DEBIT",
-			dtPosted: "20250219000000.000",
-			trnAmt:   "-620",
-			fitID:    "202502192",
-			memo:     "ACH Withdrawal",
-		},
-		{
-			index:    25,
-			trnType:  "CREDIT",
-			dtPosted: "20250123000000.000",
-			trnAmt:   "11892",
-			fitID:    "202501231",
-			memo:     "ACH deposit INTERACTIVE BROK ACH TRANSF",
+			index:   2,
+			typ:     "Cash",
+			date:    "08/27/2024",
+			amount:  "80.00",
+			payee:   "",
+			memo:    "",
+			cat:     "Bank Deposit to PP Account ",
+			splitCt: "Bank Deposit to PP Account ",
+			splitAm: "80.00",
 		},
 	}
 
@@ -77,20 +73,29 @@ func TestParseQFX(t *testing.T) {
 		}
 		e := entries[tt.index]
 
-		if e.TrnType != tt.trnType {
-			t.Errorf("entry %d: expected TrnType %q, got %q", tt.index, tt.trnType, e.TrnType)
+		if e.Type != tt.typ {
+			t.Errorf("entry %d: expected Type %q, got %q", tt.index, tt.typ, e.Type)
 		}
-		if e.DtPosted != tt.dtPosted {
-			t.Errorf("entry %d: expected DtPosted %q, got %q", tt.index, tt.dtPosted, e.DtPosted)
+		if e.Date != tt.date {
+			t.Errorf("entry %d: expected Date %q, got %q", tt.index, tt.date, e.Date)
 		}
-		if e.TrnAmt != tt.trnAmt {
-			t.Errorf("entry %d: expected TrnAmt %q, got %q", tt.index, tt.trnAmt, e.TrnAmt)
+		if e.Amount != tt.amount {
+			t.Errorf("entry %d: expected Amount %q, got %q", tt.index, tt.amount, e.Amount)
 		}
-		if e.FitID != tt.fitID {
-			t.Errorf("entry %d: expected FitID %q, got %q", tt.index, tt.fitID, e.FitID)
+		if e.Payee != tt.payee {
+			t.Errorf("entry %d: expected Payee %q, got %q", tt.index, tt.payee, e.Payee)
 		}
 		if e.Memo != tt.memo {
 			t.Errorf("entry %d: expected Memo %q, got %q", tt.index, tt.memo, e.Memo)
+		}
+		if e.Category != tt.cat {
+			t.Errorf("entry %d: expected Category %q, got %q", tt.index, tt.cat, e.Category)
+		}
+		if e.SplitCategory != tt.splitCt {
+			t.Errorf("entry %d: expected SplitCategory %q, got %q", tt.index, tt.splitCt, e.SplitCategory)
+		}
+		if e.SplitAmount != tt.splitAm {
+			t.Errorf("entry %d: expected SplitAmount %q, got %q", tt.index, tt.splitAm, e.SplitAmount)
 		}
 	}
 }
