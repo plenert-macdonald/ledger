@@ -13,6 +13,7 @@ import (
 	"github.com/howeyc/ledger"
 	"github.com/howeyc/ledger/ledger/camt"
 	"github.com/howeyc/ledger/ledger/qfx"
+	"github.com/howeyc/ledger/ledger/qif"
 	"github.com/jbrukh/bayesian"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
@@ -286,6 +287,83 @@ func importCamt(accountSubstring, camtFileName string) {
 	}
 }
 
+func importQIF(accountSubstring, qifFileName string) {
+	decScale := decimal.NewFromFloat(scaleFactor)
+
+	fileReader, err := os.Open(qifFileName)
+	if err != nil {
+		fmt.Println("QIF: ", err, qifFileName)
+		return
+	}
+	defer fileReader.Close()
+
+	generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
+	if parseError != nil {
+		fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
+		return
+	}
+
+	matchingAccount, err := findMatchingAccount(generalLedger, accountSubstring)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	classifier := trainClassifier(generalLedger, matchingAccount)
+
+	entries, err := qif.ParseQIF(fileReader)
+	if err != nil {
+		fmt.Println("QIF parse error:", err.Error())
+		return
+	}
+
+	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
+	qifAccount := ledger.Account{Name: matchingAccount, Balance: decimal.Zero}
+	for _, entry := range entries {
+		// Parse date (QIF dates are often locale-specific; assume mm/dd/yyyy here)
+		dateTime, err := time.Parse("01/02/2006", entry.Date)
+		if err != nil {
+			// Try an alternate common QIF date format (dd/mm/yyyy)
+			dateTime, err = time.Parse("02/01/2006", entry.Date)
+			if err != nil {
+				fmt.Println("QIF date parse error:", err.Error())
+				continue
+			}
+		}
+
+		// Parse amount
+		amount, err := decimal.NewFromString(entry.Amount)
+		if err != nil {
+			fmt.Println("QIF amount parse error:", err.Error())
+			continue
+		}
+
+		payee := entry.Payee
+		inputPayeeWords := strings.Fields(payee)
+
+		expenseAccount.Name = predictAccount(classifier, inputPayeeWords)
+		expenseAccount.Balance = amount
+
+		// Apply scale
+		expenseAccount.Balance = expenseAccount.Balance.Mul(decScale)
+
+		// Account side is the opposite of expense
+		qifAccount.Balance = expenseAccount.Balance.Neg()
+
+		// Create valid transaction for print in ledger format
+		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		trans.AccountChanges = []ledger.Account{qifAccount, expenseAccount}
+
+		// Comment with raw lines if present
+		if len(entry.RawLines) > 0 {
+			// Join all raw lines except header/type line
+			comment := strings.Join(entry.RawLines, " ")
+			trans.Comments = []string{";" + comment}
+		}
+		WriteTransaction(os.Stdout, trans, 80)
+	}
+}
+
 func importQFX(accountSubstring, qfxFileName string) {
 	decScale := decimal.NewFromFloat(scaleFactor)
 
@@ -376,6 +454,8 @@ var importCmd = &cobra.Command{
 			importCamt(accountSubstring, fileName)
 		} else if strings.HasSuffix(lower, ".qfx") || strings.HasSuffix(lower, ".ofx") {
 			importQFX(accountSubstring, fileName)
+		} else if strings.HasSuffix(lower, ".qif") {
+			importQIF(accountSubstring, fileName)
 		} else {
 			importCSV(accountSubstring, fileName)
 		}
