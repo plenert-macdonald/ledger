@@ -31,10 +31,18 @@ var scaleFactor float64
 
 func trainClassifier(generalLedger []*ledger.Transaction, matchingAccount string) *bayesian.Classifier {
 	allAccounts := ledger.GetBalances(generalLedger, []string{})
-	classes := make([]bayesian.Class, len(allAccounts))
-	for i, bal := range allAccounts {
-		classes[i] = bayesian.Class(bal.Name)
+	uniqueAccounts := make(map[string]bool)
+	for _, acc := range allAccounts {
+		if ok, _ := uniqueAccounts[acc.Name]; !ok {
+			uniqueAccounts[acc.Name] = true
+		}
 	}
+
+	classes := []bayesian.Class{}
+	for name := range uniqueAccounts {
+		classes = append(classes, bayesian.Class(name))
+	}
+
 	classifier := bayesian.NewClassifier(classes...)
 	for _, tran := range generalLedger {
 		payeeWords := strings.Fields(tran.Payee)
