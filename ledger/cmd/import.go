@@ -243,11 +243,7 @@ func importCamt(accountSubstring, camtFileName string) {
 
 	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
 	camtAccount := ledger.Account{Name: matchingAccount, Balance: decimal.Zero}
-	entryCurrency := ""
 	for _, entry := range entries {
-		if entry.Amt.Ccy != "" {
-			entryCurrency = entry.Amt.Ccy
-		}
 		dateTime, err := time.Parse(time.RFC3339, entry.BookgDt.DtTm)
 		if err != nil {
 			// Try another format if RFC3339 fails
@@ -292,16 +288,16 @@ func importCamt(accountSubstring, camtFileName string) {
 		camtAccount.Balance = expenseAccount.Balance.Neg()
 
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		trans.AccountChanges = []ledger.Account{camtAccount, expenseAccount}
 		if overrideCurrency != "" {
 			for i := range trans.AccountChanges {
 				trans.AccountChanges[i].Currency = overrideCurrency
 			}
-		} else if entryCurrency != "" {
+		} else if entry.Amt.Ccy != "" {
 			for i := range trans.AccountChanges {
-				trans.AccountChanges[i].Currency = entryCurrency
+				trans.AccountChanges[i].Currency = entry.Amt.Ccy
 			}
 		}
-		trans.AccountChanges = []ledger.Account{camtAccount, expenseAccount}
 		if reference != "" {
 			trans.Comments = []string{";" + reference}
 		}
@@ -373,12 +369,12 @@ func importQIF(accountSubstring, qifFileName string) {
 		qifAccount.Balance = expenseAccount.Balance.Neg()
 
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		trans.AccountChanges = []ledger.Account{qifAccount, expenseAccount}
 		if overrideCurrency != "" {
 			for i := range trans.AccountChanges {
 				trans.AccountChanges[i].Currency = overrideCurrency
 			}
 		}
-		trans.AccountChanges = []ledger.Account{qifAccount, expenseAccount}
 		if len(entry.RawLines) > 0 {
 			// Join all raw lines except header/type line
 			comment := strings.Join(entry.RawLines, " ")
@@ -453,12 +449,12 @@ func importQFX(accountSubstring, qfxFileName string) {
 		qfxAccount.Balance = expenseAccount.Balance.Neg()
 
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		trans.AccountChanges = []ledger.Account{qfxAccount, expenseAccount}
 		if overrideCurrency != "" {
 			for i := range trans.AccountChanges {
 				trans.AccountChanges[i].Currency = overrideCurrency
 			}
 		}
-		trans.AccountChanges = []ledger.Account{qfxAccount, expenseAccount}
 		if entry.FitID != "" {
 			trans.Comments = []string{";" + entry.FitID}
 		}
