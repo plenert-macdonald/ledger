@@ -52,21 +52,27 @@ func NewImporter(accountSubstring, filename string) *Importer {
 	}
 	imp.reader = fileReader
 
-	generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
-	if parseError != nil {
-		fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
-		return nil
-	}
-	imp.generalLedger = generalLedger
+	// If a ledger file path is provided, load it and train the classifier.
+	// Otherwise, skip loading and prediction will fall back to "unknown:unknown".
+	if ledgerFilePath != "" {
+		generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
+		if parseError != nil {
+			fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
+			return nil
+		}
+		imp.generalLedger = generalLedger
 
-	matchingAccount, err := imp.findMatchingAccount(accountSubstring)
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
-	imp.matchingAccount = matchingAccount
+		matchingAccount, err := imp.findMatchingAccount(accountSubstring)
+		if err != nil {
+			fmt.Println(err)
+			return nil
+		}
+		imp.matchingAccount = matchingAccount
 
-	imp.classifier = imp.trainClassifier(imp.matchingAccount)
+		imp.classifier = imp.trainClassifier(imp.matchingAccount)
+	} else {
+		imp.matchingAccount = accountSubstring
+	}
 
 	return &imp
 }
@@ -113,6 +119,10 @@ func (imp *Importer) trainClassifier(matchingAccount string) *bayesian.Classifie
 }
 
 func (imp *Importer) predictAccount(inputPayeeWords []string) string {
+	if imp.classifier == nil {
+		return "unknown:unknown"
+	}
+
 	// Classify into expense account
 
 	// Find the highest and second highest scores
