@@ -61,6 +61,42 @@ func TestDecodeEncode(t *testing.T) {
 						{Type: RecordType("SPL"), Fields: []string{"SPLID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
 						{Type: RecordType("ENDTRNS"), Fields: []string{}},
 					},
+					Records: []Record{
+						{
+							Type: RecordType("TRNS"),
+							Fields: map[string]string{
+								"TRNSID":   " ",
+								"TRNSTYPE": "DEPOSIT",
+								"DATE":     "7/1/1998",
+								"ACCNT":    "Checking",
+								"NAME":     "",
+								"CLASS":    "",
+								"AMOUNT":   "10000",
+								"DOCNUM":   "",
+								"MEMO":     "",
+								"CLEAR":    "N",
+							},
+						},
+						{
+							Type: RecordType("SPL"),
+							Fields: map[string]string{
+								"SPLID":    "",
+								"TRNSTYPE": "DEPOSIT",
+								"DATE":     "7/1/1998",
+								"ACCNT":    "Income",
+								"NAME":     "Customer",
+								"CLASS":    "",
+								"AMOUNT":   "-10000",
+								"DOCNUM":   "",
+								"MEMO":     "",
+								"CLEAR":    "N",
+							},
+						},
+						{
+							Type:   RecordType("ENDTRNS"),
+							Fields: map[string]string{},
+						},
+					},
 				},
 			},
 		},
@@ -97,6 +133,9 @@ func TestDecodeEncode(t *testing.T) {
 			for i, b := range tt.blocks {
 				if !reflect.DeepEqual(b.Header, f.Blocks[i].Header) {
 					t.Errorf("expected headers to equal %+v != %+v", b.Header, f.Blocks[i].Header)
+				}
+				if b.Records != nil && !reflect.DeepEqual(b.Records, f.Blocks[i].Records) {
+					t.Errorf("expected records to equal %+v != %+v", b.Records, f.Blocks[i].Records)
 				}
 			}
 		})

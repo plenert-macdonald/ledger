@@ -64,8 +64,11 @@ func (b *Block) AddHeader(h Header) {
 
 func (b *Block) AddRecord(t RecordType, values []string) error {
 	header := b.Header[b.curHeader]
-	if t != header.Type {
-		return ErrMismatchedRecords
+	for t != header.Type {
+		if b.curHeader += 1; b.curHeader >= len(b.Header) {
+			return ErrMismatchedRecords
+		}
+		header = b.Header[b.curHeader]
 	}
 
 	r := Record{
@@ -116,7 +119,10 @@ func (d *Decoder) Decode() (*File, error) {
 			})
 		} else {
 			parsingHeaders = false
-			b.AddRecord(RecordType(key), record[1:])
+			err := b.AddRecord(RecordType(key), record[1:])
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
