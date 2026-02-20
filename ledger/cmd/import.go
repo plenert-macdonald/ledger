@@ -28,6 +28,7 @@ var negateAmount bool
 var allowMatching bool
 var fieldDelimiter string
 var scaleFactor float64
+var overrideCurrency string
 
 func trainClassifier(generalLedger []*ledger.Transaction, matchingAccount string) *bayesian.Classifier {
 	allAccounts := ledger.GetBalances(generalLedger, []string{})
@@ -194,11 +195,14 @@ func importCSV(accountSubstring, csvFileName string) {
 			// Csv amount is the negative of the expense amount
 			csvAccount.Balance = expenseAccount.Balance.Neg()
 
-			// Create valid transaction for print in ledger format
 			trans := &ledger.Transaction{Date: csvDate, Payee: record[payeeColumn]}
 			trans.AccountChanges = []ledger.Account{csvAccount, expenseAccount}
 
-			// Comment
+			if overrideCurrency != "" {
+				for i := range trans.AccountChanges {
+					trans.AccountChanges[i].Currency = overrideCurrency
+				}
+			}
 			if commentColumn >= 0 && record[commentColumn] != "" {
 				trans.Comments = []string{";" + record[commentColumn]}
 			}
@@ -239,7 +243,11 @@ func importCamt(accountSubstring, camtFileName string) {
 
 	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
 	camtAccount := ledger.Account{Name: matchingAccount, Balance: decimal.Zero}
+	entryCurrency := ""
 	for _, entry := range entries {
+		if entry.Amt.Ccy != "" {
+			entryCurrency = entry.Amt.Ccy
+		}
 		dateTime, err := time.Parse(time.RFC3339, entry.BookgDt.DtTm)
 		if err != nil {
 			// Try another format if RFC3339 fails
@@ -283,11 +291,17 @@ func importCamt(accountSubstring, camtFileName string) {
 		// Csv amount is the negative of the expense amount
 		camtAccount.Balance = expenseAccount.Balance.Neg()
 
-		// Create valid transaction for print in ledger format
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		} else if entryCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = entryCurrency
+			}
+		}
 		trans.AccountChanges = []ledger.Account{camtAccount, expenseAccount}
-
-		// Comment
 		if reference != "" {
 			trans.Comments = []string{";" + reference}
 		}
@@ -358,11 +372,13 @@ func importQIF(accountSubstring, qifFileName string) {
 		// Account side is the opposite of expense
 		qifAccount.Balance = expenseAccount.Balance.Neg()
 
-		// Create valid transaction for print in ledger format
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		}
 		trans.AccountChanges = []ledger.Account{qifAccount, expenseAccount}
-
-		// Comment with raw lines if present
 		if len(entry.RawLines) > 0 {
 			// Join all raw lines except header/type line
 			comment := strings.Join(entry.RawLines, " ")
@@ -436,11 +452,13 @@ func importQFX(accountSubstring, qfxFileName string) {
 		// Account side is the opposite of expense
 		qfxAccount.Balance = expenseAccount.Balance.Neg()
 
-		// Create valid transaction for print in ledger format
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		}
 		trans.AccountChanges = []ledger.Account{qfxAccount, expenseAccount}
-
-		// Comment with FITID if present
 		if entry.FitID != "" {
 			trans.Comments = []string{";" + entry.FitID}
 		}
@@ -479,6 +497,7 @@ func init() {
 	importCmd.Flags().Float64Var(&scaleFactor, "scale", 1.0, "Scale factor to multiply against every imported amount.")
 	importCmd.Flags().StringVar(&csvDateFormat, "date-format", "01/02/2006", "Date format.")
 	importCmd.Flags().StringVar(&fieldDelimiter, "delimiter", ",", "Field delimiter.")
+	importCmd.Flags().StringVar(&overrideCurrency, "override-currency", "", "Override detected currency for imported transactions.")
 }
 
 func existingTransaction(generalLedger []*ledger.Transaction, transDate time.Time, payee string) bool {
