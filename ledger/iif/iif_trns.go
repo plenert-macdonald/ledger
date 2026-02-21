@@ -7,8 +7,8 @@ import (
 )
 
 type Transaction struct {
-	Tr     Trns  `iff:"TRNS"`
-	Splits []Spl `iff:"SPL"`
+	Tr     Trns  `type:"TRNS"`
+	Splits []Spl `type:"SPL"`
 }
 
 type Trns struct {
