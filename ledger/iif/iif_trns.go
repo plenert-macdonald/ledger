@@ -20,6 +20,7 @@ type Trns struct {
 	Name            string          `iif:"NAME"`
 	Class           string          `iif:"CLASS"`
 	Amount          decimal.Decimal `iif:"AMOUNT"`
+	Memo            string          `iif:"MEMO"`
 }
 
 type Spl struct {
@@ -29,6 +30,7 @@ type Spl struct {
 	Name            string          `iif:"NAME"`
 	Class           string          `iif:"CLASS"`
 	Amount          decimal.Decimal `iif:"AMOUNT"`
+	Memo            string          `iif:"MEMO"`
 }
 
 func DeserializeTransactions(b Block) ([]Transaction, error) {

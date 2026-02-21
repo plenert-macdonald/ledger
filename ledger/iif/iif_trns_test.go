@@ -47,7 +47,7 @@ func TestDeserializeTransactions(t *testing.T) {
 								"CLASS":    "",
 								"AMOUNT":   "10000",
 								"DOCNUM":   "",
-								"MEMO":     "",
+								"MEMO":     "Hello",
 								"CLEAR":    "N",
 							},
 						},
@@ -80,6 +80,7 @@ func TestDeserializeTransactions(t *testing.T) {
 						Date:            time.Date(1998, 7, 1, 0, 0, 0, 0, time.UTC),
 						Account:         "Checking",
 						Amount:          decimal.NewFromInt(10000),
+						Memo:            "Hello",
 					},
 					Splits: []iif.Spl{
 						{
