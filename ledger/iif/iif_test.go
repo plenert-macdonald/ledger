@@ -36,65 +36,67 @@ func TestDecodeEncode(t *testing.T) {
 			data: fullDepositIIF,
 			blocks: []Block{
 				{
-					Header: []Header{
+					Headers: []Header{
 						{Type: RecordType("ACCNT"), Fields: []string{"NAME", "ACCNTTYPE", "DESC", "ACCNUM", "EXTRA"}},
 					},
 				},
 				{
-					Header: []Header{
+					Headers: []Header{
 						{Type: RecordType("CLASS"), Fields: []string{"NAME"}},
 					},
 				},
 				{
-					Header: []Header{
+					Headers: []Header{
 						{Type: RecordType("CUST"), Fields: []string{"NAME", "BADDR1", "BADDR2", "BADDR3", "BADDR4", "BADDR5", "SADDR1"}},
 					},
 				},
 				{
-					Header: []Header{
+					Headers: []Header{
 						{Type: RecordType("OTHERNAME"), Fields: []string{"NAME", "BADDR1", "BADDR2", "BADDR3", "BADDR4", "BADDR5", "PHONE1", "PHONE2", "FAXNUM", "EMAIL", "NOTE", "CONT1", "CONT2", "NOTEPAD", "SALUTATION", "COMPANYNAME", "FIRSTNAME", "MIDINIT", "LASTNAME"}},
 					},
 				},
 				{
-					Header: []Header{
+					Headers: []Header{
 						{Type: RecordType("TRNS"), Fields: []string{"TRNSID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
 						{Type: RecordType("SPL"), Fields: []string{"SPLID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
 						{Type: RecordType("ENDTRNS"), Fields: []string{}},
 					},
-					Records: []Record{
+					Records: [][]Record{
 						{
-							Type: RecordType("TRNS"),
-							Fields: map[string]string{
-								"TRNSID":   " ",
-								"TRNSTYPE": "DEPOSIT",
-								"DATE":     "7/1/1998",
-								"ACCNT":    "Checking",
-								"NAME":     "",
-								"CLASS":    "",
-								"AMOUNT":   "10000",
-								"DOCNUM":   "",
-								"MEMO":     "",
-								"CLEAR":    "N",
+							{
+								Type: RecordType("TRNS"),
+								Fields: map[string]string{
+									"TRNSID":   " ",
+									"TRNSTYPE": "DEPOSIT",
+									"DATE":     "7/1/1998",
+									"ACCNT":    "Checking",
+									"NAME":     "",
+									"CLASS":    "",
+									"AMOUNT":   "10000",
+									"DOCNUM":   "",
+									"MEMO":     "",
+									"CLEAR":    "N",
+								},
 							},
-						},
-						{
-							Type: RecordType("SPL"),
-							Fields: map[string]string{
-								"SPLID":    "",
-								"TRNSTYPE": "DEPOSIT",
-								"DATE":     "7/1/1998",
-								"ACCNT":    "Income",
-								"NAME":     "Customer",
-								"CLASS":    "",
-								"AMOUNT":   "-10000",
-								"DOCNUM":   "",
-								"MEMO":     "",
-								"CLEAR":    "N",
+							{
+								Type: RecordType("SPL"),
+								Fields: map[string]string{
+									"SPLID":    "",
+									"TRNSTYPE": "DEPOSIT",
+									"DATE":     "7/1/1998",
+									"ACCNT":    "Income",
+									"NAME":     "Customer",
+									"CLASS":    "",
+									"AMOUNT":   "-10000",
+									"DOCNUM":   "",
+									"MEMO":     "",
+									"CLEAR":    "N",
+								},
 							},
-						},
-						{
-							Type:   RecordType("ENDTRNS"),
-							Fields: map[string]string{},
+							{
+								Type:   RecordType("ENDTRNS"),
+								Fields: map[string]string{},
+							},
 						},
 					},
 				},
@@ -131,8 +133,12 @@ func TestDecodeEncode(t *testing.T) {
 			}
 
 			for i, b := range tt.blocks {
-				if !reflect.DeepEqual(b.Header, f.Blocks[i].Header) {
-					t.Errorf("expected headers to equal %+v != %+v", b.Header, f.Blocks[i].Header)
+				if i >= len(f.Blocks) {
+					t.Errorf("expected at least %d blocks, got %d", len(tt.blocks), len(f.Blocks))
+					break
+				}
+				if !reflect.DeepEqual(b.Headers, f.Blocks[i].Headers) {
+					t.Errorf("expected headers to equal %+v != %+v", b.Headers, f.Blocks[i].Headers)
 				}
 				if b.Records != nil && !reflect.DeepEqual(b.Records, f.Blocks[i].Records) {
 					t.Errorf("expected records to equal %+v != %+v", b.Records, f.Blocks[i].Records)

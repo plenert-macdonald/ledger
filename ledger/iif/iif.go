@@ -3,6 +3,7 @@ package iif
 import (
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -13,6 +14,7 @@ var (
 	ErrMismatchedRecords     = errors.New("iif: row does not match expected header")
 	ErrUnknownRecordType     = errors.New("iif: unknown record type")
 	ErrUnexpectedSectionType = errors.New("iif: unexpected record type for current section")
+	ErrEmptyHeader           = errors.New("iif: empty header")
 )
 
 type RecordType string
@@ -27,20 +29,21 @@ type Record struct {
 	Fields map[string]string
 }
 
-type Records []Record
-
 type Block struct {
-	Header    []Header
-	Records   Records
-	curHeader int
+	Records [][]Record
+	Headers []Header
 }
 
 type File struct {
-	Blocks []*Block
+	Blocks []Block
 }
 
 type Decoder struct {
-	r *csv.Reader
+	r        *csv.Reader
+	err      error
+	IsHeader bool
+	Type     RecordType
+	Fields   []string
 }
 
 func NewDecoder(r io.Reader) *Decoder {
@@ -49,37 +52,112 @@ func NewDecoder(r io.Reader) *Decoder {
 	reader.LazyQuotes = true
 	reader.TrimLeadingSpace = false
 	reader.FieldsPerRecord = -1
-	return &Decoder{r: reader}
+	d := Decoder{r: reader}
+	d.Next()
+	return &d
 }
 
-func (f *File) NewBlock() *Block {
-	f.Blocks = append(f.Blocks, &Block{})
-
-	return f.Blocks[len(f.Blocks)-1]
-}
-
-func (b *Block) AddHeader(h Header) {
-	b.Header = append(b.Header, h)
-}
-
-func (b *Block) AddRecord(t RecordType, values []string) error {
-	header := b.Header[b.curHeader]
-	for t != header.Type {
-		if b.curHeader += 1; b.curHeader >= len(b.Header) {
-			return ErrMismatchedRecords
+func (d *Decoder) Next() {
+	line, err := d.r.Read()
+	fmt.Println("Read", line)
+	d.err = err
+	if err == nil {
+		d.IsHeader = strings.HasPrefix(line[0], "!")
+		if d.IsHeader {
+			d.Type = RecordType(line[0][1:])
+		} else {
+			d.Type = RecordType(line[0])
 		}
-		header = b.Header[b.curHeader]
+		d.Fields = line[1:]
+	}
+}
+
+func (d *Decoder) Error() error {
+	if d.err != io.EOF {
+		return d.err
+	}
+	return nil
+}
+
+func (d *Decoder) Done() bool {
+	return d.err != nil
+}
+
+func (f *File) Load(d *Decoder) error {
+	for !d.Done() {
+		if d.Error() != nil {
+			return d.Error()
+		}
+		b := Block{}
+		err := b.Load(d)
+		if err != nil {
+			return err
+		}
+		f.Blocks = append(f.Blocks, b)
+	}
+	return nil
+}
+
+func (h Header) MapFields(fields []string) map[string]string {
+	m := make(map[string]string, len(fields))
+	for i, f := range h.Fields {
+		if i >= len(fields) {
+			break
+		}
+		m[f] = fields[i]
+	}
+	return m
+}
+
+func (b *Block) Load(d *Decoder) error {
+	if d.Done() {
+		return d.Error()
+	}
+	// Parse Headers
+	for !d.Done() && d.IsHeader {
+		fmt.Println("Header", d.Done(), d.IsHeader, d.Type)
+		b.Headers = append(
+			b.Headers,
+			Header{
+				Type:   RecordType(d.Type),
+				Fields: trimLine(d.Fields),
+			},
+		)
+		d.Next()
+	}
+	if d.Error() != nil {
+		return d.Error()
 	}
 
-	r := Record{
-		Type:   t,
-		Fields: make(map[string]string, len(values)),
-	}
-	for i, h := range header.Fields {
-		r.Fields[h] = values[i]
-	}
+	// Parse Records
+	for !d.Done() && !d.IsHeader {
+		r := []Record{}
+		// At least one record per header
+		if len(b.Headers) == 0 {
+			return ErrEmptyHeader
+		}
+		for _, h := range b.Headers {
+			if d.Done() {
+				return d.Error()
+			}
+			if d.Done() || d.Type != h.Type {
+				return ErrMismatchedRecords
+			}
 
-	b.Records = append(b.Records, r)
+			for !d.Done() && !d.IsHeader && d.Type == h.Type {
+				fmt.Println("Record", d.Type, d.Fields)
+				r = append(r, Record{
+					Type:   d.Type,
+					Fields: h.MapFields(d.Fields),
+				})
+				d.Next()
+			}
+			if len(r) == 0 {
+				return ErrMismatchedRecords
+			}
+		}
+		b.Records = append(b.Records, r)
+	}
 	return nil
 }
 
@@ -94,38 +172,10 @@ func trimLine(records []string) []string {
 
 func (d *Decoder) Decode() (*File, error) {
 	f := File{}
-	var b *Block
-
-	parsingHeaders := false
-	for {
-		record, err := d.r.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		key := record[0]
-		if strings.HasPrefix(key, "!") {
-			if !parsingHeaders {
-				b = f.NewBlock()
-			}
-
-			parsingHeaders = true
-			b.AddHeader(Header{
-				Type:   RecordType(key[1:]),
-				Fields: trimLine(record[1:]),
-			})
-		} else {
-			parsingHeaders = false
-			err := b.AddRecord(RecordType(key), record[1:])
-			if err != nil {
-				return nil, err
-			}
-		}
+	err := f.Load(d)
+	if err != nil && err != io.EOF {
+		return nil, err
 	}
-
 	return &f, nil
 }
 
@@ -138,5 +188,5 @@ func NewEncoder(w io.Writer) *Encoder {
 }
 
 func (e *Encoder) Encode(f *File) error {
-	return nil
+	return errors.New("iif encoding not implemented")
 }
