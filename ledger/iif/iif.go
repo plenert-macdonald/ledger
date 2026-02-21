@@ -3,7 +3,6 @@ package iif
 import (
 	"encoding/csv"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 )
@@ -59,7 +58,6 @@ func NewDecoder(r io.Reader) *Decoder {
 
 func (d *Decoder) Next() {
 	line, err := d.r.Read()
-	fmt.Println("Read", line)
 	d.err = err
 	if err == nil {
 		d.IsHeader = strings.HasPrefix(line[0], "!")
@@ -115,7 +113,6 @@ func (b *Block) Load(d *Decoder) error {
 	}
 	// Parse Headers
 	for !d.Done() && d.IsHeader {
-		fmt.Println("Header", d.Done(), d.IsHeader, d.Type)
 		b.Headers = append(
 			b.Headers,
 			Header{
@@ -145,7 +142,6 @@ func (b *Block) Load(d *Decoder) error {
 			}
 
 			for !d.Done() && !d.IsHeader && d.Type == h.Type {
-				fmt.Println("Record", d.Type, d.Fields)
 				r = append(r, Record{
 					Type:   d.Type,
 					Fields: h.MapFields(d.Fields),

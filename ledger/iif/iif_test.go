@@ -1,4 +1,4 @@
-package iif
+package iif_test
 
 import (
 	"bytes"
@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	_ "embed"
+
+	"github.com/howeyc/ledger/ledger/iif"
 )
 
 var (
@@ -29,42 +31,42 @@ func TestDecodeEncode(t *testing.T) {
 	tests := []struct {
 		name   string
 		data   []byte
-		blocks []Block
+		blocks []iif.Block
 	}{
 		{
 			name: "fullDepositIIF",
 			data: fullDepositIIF,
-			blocks: []Block{
+			blocks: []iif.Block{
 				{
-					Headers: []Header{
-						{Type: RecordType("ACCNT"), Fields: []string{"NAME", "ACCNTTYPE", "DESC", "ACCNUM", "EXTRA"}},
+					Headers: []iif.Header{
+						{Type: iif.RecordType("ACCNT"), Fields: []string{"NAME", "ACCNTTYPE", "DESC", "ACCNUM", "EXTRA"}},
 					},
 				},
 				{
-					Headers: []Header{
-						{Type: RecordType("CLASS"), Fields: []string{"NAME"}},
+					Headers: []iif.Header{
+						{Type: iif.RecordType("CLASS"), Fields: []string{"NAME"}},
 					},
 				},
 				{
-					Headers: []Header{
-						{Type: RecordType("CUST"), Fields: []string{"NAME", "BADDR1", "BADDR2", "BADDR3", "BADDR4", "BADDR5", "SADDR1"}},
+					Headers: []iif.Header{
+						{Type: iif.RecordType("CUST"), Fields: []string{"NAME", "BADDR1", "BADDR2", "BADDR3", "BADDR4", "BADDR5", "SADDR1"}},
 					},
 				},
 				{
-					Headers: []Header{
-						{Type: RecordType("OTHERNAME"), Fields: []string{"NAME", "BADDR1", "BADDR2", "BADDR3", "BADDR4", "BADDR5", "PHONE1", "PHONE2", "FAXNUM", "EMAIL", "NOTE", "CONT1", "CONT2", "NOTEPAD", "SALUTATION", "COMPANYNAME", "FIRSTNAME", "MIDINIT", "LASTNAME"}},
+					Headers: []iif.Header{
+						{Type: iif.RecordType("OTHERNAME"), Fields: []string{"NAME", "BADDR1", "BADDR2", "BADDR3", "BADDR4", "BADDR5", "PHONE1", "PHONE2", "FAXNUM", "EMAIL", "NOTE", "CONT1", "CONT2", "NOTEPAD", "SALUTATION", "COMPANYNAME", "FIRSTNAME", "MIDINIT", "LASTNAME"}},
 					},
 				},
 				{
-					Headers: []Header{
-						{Type: RecordType("TRNS"), Fields: []string{"TRNSID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
-						{Type: RecordType("SPL"), Fields: []string{"SPLID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
-						{Type: RecordType("ENDTRNS"), Fields: []string{}},
+					Headers: []iif.Header{
+						{Type: iif.RecordType("TRNS"), Fields: []string{"TRNSID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
+						{Type: iif.RecordType("SPL"), Fields: []string{"SPLID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR"}},
+						{Type: iif.RecordType("ENDTRNS"), Fields: []string{}},
 					},
-					Records: [][]Record{
+					Records: [][]iif.Record{
 						{
 							{
-								Type: RecordType("TRNS"),
+								Type: iif.RecordType("TRNS"),
 								Fields: map[string]string{
 									"TRNSID":   " ",
 									"TRNSTYPE": "DEPOSIT",
@@ -79,7 +81,7 @@ func TestDecodeEncode(t *testing.T) {
 								},
 							},
 							{
-								Type: RecordType("SPL"),
+								Type: iif.RecordType("SPL"),
 								Fields: map[string]string{
 									"SPLID":    "",
 									"TRNSTYPE": "DEPOSIT",
@@ -94,7 +96,7 @@ func TestDecodeEncode(t *testing.T) {
 								},
 							},
 							{
-								Type:   RecordType("ENDTRNS"),
+								Type:   iif.RecordType("ENDTRNS"),
 								Fields: map[string]string{},
 							},
 						},
@@ -122,7 +124,7 @@ func TestDecodeEncode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dec := NewDecoder(bytes.NewReader(tt.data))
+			dec := iif.NewDecoder(bytes.NewReader(tt.data))
 			f, err := dec.Decode()
 			if err != nil {
 				t.Fatalf("Decode error: %v", err)
