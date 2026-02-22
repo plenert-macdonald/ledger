@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"strings"
 	"time"
@@ -14,9 +13,9 @@ import (
 	"github.com/howeyc/ledger"
 	"github.com/howeyc/ledger/ledger/camt"
 	"github.com/howeyc/ledger/ledger/iif"
+	"github.com/howeyc/ledger/ledger/model"
 	"github.com/howeyc/ledger/ledger/qfx"
 	"github.com/howeyc/ledger/ledger/qif"
-	"github.com/jbrukh/bayesian"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +37,7 @@ type Importer struct {
 	decScale        decimal.Decimal
 	matchingAccount string
 	generalLedger   []*ledger.Transaction
-	classifier      *bayesian.Classifier
+	model           model.Model
 }
 
 func NewImporter(accountSubstring, filename string) *Importer {
@@ -71,7 +70,7 @@ func NewImporter(accountSubstring, filename string) *Importer {
 		}
 		imp.matchingAccount = matchingAccount
 
-		imp.classifier = imp.trainClassifier(imp.matchingAccount)
+		imp.model.Train(generalLedger, imp.matchingAccount)
 	} else {
 		imp.matchingAccount = accountSubstring
 	}
@@ -81,71 +80,6 @@ func NewImporter(accountSubstring, filename string) *Importer {
 
 func (imp *Importer) Close() {
 	imp.reader.Close()
-}
-
-func (imp *Importer) trainClassifier(matchingAccount string) *bayesian.Classifier {
-	allAccounts := ledger.GetBalances(imp.generalLedger, []string{})
-	uniqueAccounts := make(map[string]bool)
-	for _, acc := range allAccounts {
-		if ok, _ := uniqueAccounts[acc.Name]; !ok {
-			uniqueAccounts[acc.Name] = true
-		}
-	}
-
-	classes := []bayesian.Class{}
-	for name := range uniqueAccounts {
-		classes = append(classes, bayesian.Class(name))
-	}
-
-	classifier := bayesian.NewClassifier(classes...)
-	for _, tran := range imp.generalLedger {
-		payeeWords := strings.Fields(tran.Payee)
-		// learn accounts names (except matchingAccount) for transactions where matchingAccount is present
-		learnName := false
-		for _, accChange := range tran.AccountChanges {
-			if accChange.Name == matchingAccount {
-				learnName = true
-				break
-			}
-		}
-		if learnName {
-			for _, accChange := range tran.AccountChanges {
-				if accChange.Name != matchingAccount {
-					classifier.Learn(payeeWords, bayesian.Class(accChange.Name))
-				}
-			}
-		}
-	}
-
-	return classifier
-}
-
-func (imp *Importer) predictAccount(inputPayeeWords []string) string {
-	if imp.classifier == nil {
-		return "unknown:unknown"
-	}
-
-	// Classify into expense account
-
-	// Find the highest and second highest scores
-	highScore1 := math.Inf(-1)
-	highScore2 := math.Inf(-1)
-	matchIdx := 0
-	scores, _, _ := imp.classifier.LogScores(inputPayeeWords)
-	for j, score := range scores {
-		if score > highScore1 {
-			highScore2 = highScore1
-			highScore1 = score
-			matchIdx = j
-		}
-	}
-	// If the difference between the highest and second highest scores is greater than 10
-	// then it indicates that highscore is a high confidence match
-	if highScore1-highScore2 > 10 {
-		return string(imp.classifier.Classes[matchIdx])
-	} else {
-		return "unknown:unknown"
-	}
 }
 
 func (imp *Importer) findMatchingAccount(accountSubstring string) (string, error) {
@@ -209,7 +143,7 @@ func (imp *Importer) importCSV() {
 		inputPayeeWords := strings.Fields(record[payeeColumn])
 		csvDate, _ := time.Parse(csvDateFormat, record[dateColumn])
 		if allowMatching || !imp.existingTransaction(csvDate, record[payeeColumn]) {
-			expenseAccount.Name = imp.predictAccount(inputPayeeWords)
+			expenseAccount.Name = imp.model.Predict(inputPayeeWords)
 
 			// Parse error, set to zero
 			if dec, derr := decimal.NewFromString(record[amountColumn]); derr != nil {
@@ -283,7 +217,7 @@ func (imp *Importer) importCamt() {
 		}
 		inputPayeeWords := strings.Fields(payee)
 
-		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
+		expenseAccount.Name = imp.model.Predict(inputPayeeWords)
 		expenseAccount.Balance = amount
 
 		// Determine if debit
@@ -347,7 +281,7 @@ func (imp *Importer) importQIF() {
 		payee := entry.Payee
 		inputPayeeWords := strings.Fields(payee)
 
-		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
+		expenseAccount.Name = imp.model.Predict(inputPayeeWords)
 		expenseAccount.Balance = amount
 
 		// Apply scale
@@ -453,7 +387,7 @@ func (imp *Importer) importQFX() {
 		payee := entry.Memo
 		inputPayeeWords := strings.Fields(payee)
 
-		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
+		expenseAccount.Name = imp.model.Predict(inputPayeeWords)
 		expenseAccount.Balance = amount
 
 		// Apply scale
