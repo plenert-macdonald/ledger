@@ -517,7 +517,7 @@ func init() {
 
 func (imp *Importer) existingTransaction(transDate time.Time, payee string) bool {
 	for _, trans := range imp.generalLedger {
-		if trans.Date == transDate && strings.TrimSpace(trans.Payee) == strings.TrimSpace(payee) {
+		if trans.Date.Equal(transDate) && strings.TrimSpace(trans.Payee) == strings.TrimSpace(payee) {
 			return true
 		}
 	}
