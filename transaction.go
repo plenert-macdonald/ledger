@@ -93,8 +93,10 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 	var (
 		curKeys [2]string
 		groups  [2]*currencyGroup
-		i       int
 	)
+
+	// Collect keys to deterministically choose base/other currency
+	i := 0
 	for k, g := range currencyMap {
 		if i >= 2 {
 			break
@@ -102,6 +104,12 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 		curKeys[i] = k
 		groups[i] = g
 		i++
+	}
+
+	// Assign base currency as the one with the lower sort order
+	if curKeys[1] < curKeys[0] {
+		curKeys[0], curKeys[1] = curKeys[1], curKeys[0]
+		groups[0], groups[1] = groups[1], groups[0]
 	}
 
 	var baseCurIdx, otherCurIdx int
