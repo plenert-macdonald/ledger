@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/alfredxing/calc/compute"
-	date "github.com/joyt/godate"
+	"github.com/araddon/dateparse"
 	"github.com/shopspring/decimal"
 )
 
@@ -203,14 +203,10 @@ func (lp *parser) parseDate(dateString string) (transDate time.Time, err error) 
 		return lp.prevDate, lp.prevDateErr
 	}
 
-	// try current date layout
-	transDate, err = time.Parse(lp.dateLayout, dateString)
+	// Use dateparse to handle flexible date formats
+	transDate, err = dateparse.ParseAny(dateString)
 	if err != nil {
-		// try to find new date layout
-		transDate, lp.dateLayout, err = date.ParseAndGetLayout(dateString)
-		if err != nil {
-			err = fmt.Errorf("unable to parse date(%s): %w", dateString, err)
-		}
+		err = fmt.Errorf("unable to parse date(%s): %w", dateString, err)
 	}
 
 	// maybe next date is same

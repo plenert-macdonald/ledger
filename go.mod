@@ -5,10 +5,10 @@ go 1.24
 require (
 	github.com/alfredxing/calc v0.0.0-20180827002445-77daf576f976
 	github.com/andybalholm/brotli v1.0.6
+	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/ivanpirog/coloredcobra v1.0.1
 	github.com/jbrukh/bayesian v0.0.0-20200318221351-d726b684ca4a
-	github.com/joyt/godate v0.0.0-20150226210126-7151572574a7
 	github.com/juztin/numeronym v0.0.0-20160223091026-859fcc2918e2
 	github.com/lucasb-eyer/go-colorful v1.2.0
 	github.com/mattn/go-isatty v0.0.20
