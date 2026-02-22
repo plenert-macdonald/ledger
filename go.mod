@@ -3,9 +3,9 @@ module github.com/howeyc/ledger
 go 1.24
 
 require (
-	github.com/alfredxing/calc v0.0.0-20180827002445-77daf576f976
 	github.com/andybalholm/brotli v1.0.6
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
+	github.com/expr-lang/expr v1.17.8
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/ivanpirog/coloredcobra v1.0.1
 	github.com/jbrukh/bayesian v0.0.0-20200318221351-d726b684ca4a
