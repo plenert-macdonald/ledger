@@ -1,6 +1,6 @@
 module github.com/howeyc/ledger
 
-go 1.24
+go 1.26
 
 require (
 	github.com/andybalholm/brotli v1.0.6
@@ -14,7 +14,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pelletier/go-toml v1.9.5
-	github.com/shopspring/decimal v1.3.1
+	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/cobra v1.7.0
 	golang.org/x/term v0.13.0
 	golang.org/x/time v0.3.0
