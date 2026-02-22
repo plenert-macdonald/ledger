@@ -1,7 +1,8 @@
 module github.com/howeyc/ledger
 
 go 1.26
-toolchain go1.26
+
+toolchain go1.26.0
 
 require (
 	github.com/andybalholm/brotli v1.0.6
