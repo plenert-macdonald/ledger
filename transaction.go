@@ -31,11 +31,12 @@ func (t *Transaction) IsBalanced() error {
 			emptyAccIndex = i
 		}
 
-		if acc.Converted != nil {
+		switch {
+		case acc.Converted != nil:
 			transBal = transBal.Add(acc.Converted.Neg())
-		} else if acc.ConversionFactor != nil {
+		case acc.ConversionFactor != nil:
 			transBal = transBal.Add(acc.Balance.Mul(*acc.ConversionFactor))
-		} else {
+		default:
 			transBal = transBal.Add(acc.Balance)
 		}
 	}
@@ -150,9 +151,10 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 	for _, idx := range groups[otherCurIdx].indices {
 		acc := &t.AccountChanges[idx]
 		if acc.Converted != nil || acc.ConversionFactor != nil {
-			if acc.Converted != nil {
+			switch {
+			case acc.Converted != nil:
 				sumOtherRaw = sumOtherRaw.Add(acc.Converted.Neg())
-			} else if acc.ConversionFactor != nil {
+			case acc.ConversionFactor != nil:
 				sumOtherRaw = sumOtherRaw.Add(acc.Balance.Mul(*acc.ConversionFactor))
 			}
 		} else {
