@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/expr-lang/expr"
 	"github.com/araddon/dateparse"
+	"github.com/expr-lang/expr"
+	"github.com/samber/lo"
 	"github.com/shopspring/decimal"
 )
 
@@ -23,61 +23,12 @@ func ParseLedgerFile(filename string) (generalLedger []*Transaction, err error) 
 		return nil, ierr
 	}
 	defer ifile.Close()
-	var mu sync.Mutex
-	parseLedger(filename, ifile, func(t []*Transaction, e error) (stop bool) {
-		if e != nil {
-			err = e
-			stop = true
-			return
-		}
-
-		mu.Lock()
-		generalLedger = append(generalLedger, t...)
-		mu.Unlock()
-		return
-	})
-
-	return
+	return parseLedger(filename, ifile)
 }
 
 // ParseLedger parses a ledger file and returns a list of Transactions.
 func ParseLedger(ledgerReader io.Reader) (generalLedger []*Transaction, err error) {
-	parseLedger("", ledgerReader, func(t []*Transaction, e error) (stop bool) {
-		if e != nil {
-			err = e
-			stop = true
-			return
-		}
-
-		generalLedger = append(generalLedger, t...)
-		return
-	})
-
-	return
-}
-
-// ParseLedgerAsync parses a ledger file and returns a Transaction and error channels .
-func ParseLedgerAsync(ledgerReader io.Reader) (c chan *Transaction, e chan error) {
-	c = make(chan *Transaction)
-	e = make(chan error)
-
-	go func() {
-		parseLedger("", ledgerReader, func(tlist []*Transaction, err error) (stop bool) {
-			if err != nil {
-				e <- err
-			} else {
-				for _, t := range tlist {
-					c <- t
-				}
-			}
-			return
-		})
-
-		e <- nil
-		close(c)
-		close(e)
-	}()
-	return c, e
+	return parseLedger("", ledgerReader)
 }
 
 type parser struct {
@@ -91,7 +42,7 @@ type parser struct {
 	prevDate    time.Time
 }
 
-func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
+func parseLedger(filename string, ledgerReader io.Reader) (t []*Transaction, err error) {
 	var lp parser
 	lp.scanner = newLineScanner(filename, ledgerReader)
 
@@ -121,30 +72,26 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 
 		before, after, split := strings.Cut(trimmedLine, " ")
 		if !split {
-			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(),
-				fmt.Errorf("unable to parse payee line: %s", trimmedLine))) {
-				return true
-			}
-			if len(currentComment) > 0 {
-				comments = append(comments, currentComment)
-			}
-			continue
+			return nil, fmt.Errorf(
+				"%s:%d: unable to parse transaction: %w",
+				lp.scanner.Name(),
+				lp.scanner.LineNumber(),
+				fmt.Errorf("unable to parse payee line: %s", trimmedLine),
+			)
 		}
 		switch before {
 		case "account":
 			lp.skipAccount()
 		case "include":
-			stop := lp.include(after, callback)
-			if stop {
-				return stop
+			trxs, err := lp.include(after)
+			if err != nil {
+				return nil, err
 			}
+			tlist = append(tlist, trxs...)
 		default:
 			transDate, derr := lp.parseDate(before)
 			if derr != nil {
-				if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), derr)) {
-					return true
-				}
-				continue
+				return nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), derr)
 			}
 
 			blocks = append(blocks, lp.parseBlock(transDate, after, currentComment, comments))
@@ -155,15 +102,12 @@ func parseLedger(filename string, ledgerReader io.Reader, callback func(t []*Tra
 	for _, block := range blocks {
 		trans, transErr := block.parseTransaction()
 		if transErr != nil {
-			if callback(nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", block.filename, block.lineNum, transErr)) {
-				return true
-			}
-			continue
+			return nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", block.filename, block.lineNum, transErr)
 		}
 		tlist = append(tlist, trans)
 	}
-	callback(tlist, nil)
-	return false
+
+	return tlist, nil
 }
 
 func (lp *parser) skipAccount() {
@@ -175,26 +119,18 @@ func (lp *parser) skipAccount() {
 	}
 }
 
-func (lp *parser) include(after string, callback func(t []*Transaction, err error) (stop bool)) (stop bool) {
+func (lp *parser) include(after string) (t []*Transaction, err error) {
 	paths, _ := filepath.Glob(filepath.Join(filepath.Dir(lp.scanner.Name()), after))
 	if len(paths) < 1 {
-		callback(nil, fmt.Errorf("%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found")))
-		return true
+		return nil, fmt.Errorf(
+			"%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found"))
 	}
-	var wg sync.WaitGroup
-	for _, incpath := range paths {
-		wg.Add(1)
-		go func(ipath string) {
-			ifile, _ := os.Open(ipath)
-			defer ifile.Close()
-			if parseLedger(ipath, ifile, callback) {
-				stop = true
-			}
-			wg.Done()
-		}(incpath)
-	}
-	wg.Wait()
-	return
+
+	return lo.FlatMapErr(paths, func(path string, _ int) ([]*Transaction, error) {
+		f, _ := os.Open(path)
+		defer f.Close()
+		return parseLedger(path, f)
+	})
 }
 
 func (lp *parser) parseDate(dateString string) (transDate time.Time, err error) {
