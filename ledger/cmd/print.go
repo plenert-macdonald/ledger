@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/araddon/dateparse"
 	"github.com/howeyc/ledger"
 	"github.com/howeyc/ledger/ledger/internal/fastcolor"
-	"github.com/araddon/dateparse"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -59,7 +59,7 @@ func cliTransactions() ([]*ledger.Transaction, error) {
 	var generalLedger []*ledger.Transaction
 	var parseError error
 	if ledgerFilePath == "-" {
-		generalLedger, parseError = ledger.ParseLedger(os.Stdin)
+		generalLedger, parseError = ledger.ParseLedger("", os.Stdin)
 	} else {
 		generalLedger, parseError = ledger.ParseLedgerFile(ledgerFilePath)
 	}

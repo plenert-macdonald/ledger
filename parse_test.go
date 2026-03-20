@@ -649,7 +649,7 @@ func p(d decimal.Decimal) *decimal.Decimal {
 func TestParseLedger(t *testing.T) {
 	for _, tc := range testCases {
 		b := bytes.NewBufferString(tc.data)
-		transactions, err := ParseLedger(b)
+		transactions, err := ParseLedger("", b)
 		if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
 			t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
 		}

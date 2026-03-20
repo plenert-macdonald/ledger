@@ -23,12 +23,23 @@ func ParseLedgerFile(filename string) (generalLedger []*Transaction, err error) 
 		return nil, ierr
 	}
 	defer ifile.Close()
-	return parseLedger(filename, ifile)
+	return ParseLedger(filename, ifile)
 }
 
 // ParseLedger parses a ledger file and returns a list of Transactions.
-func ParseLedger(ledgerReader io.Reader) (generalLedger []*Transaction, err error) {
-	return parseLedger("", ledgerReader)
+func ParseLedger(name string, ledgerReader io.Reader) (generalLedger []*Transaction, err error) {
+	blocks, err := parseBlocks(name, ledgerReader)
+	if err != nil {
+		return nil, err
+	}
+
+	return lo.MapErr(blocks, func(b block, _ int) (*Transaction, error) {
+		trans, transErr := b.parseTransaction()
+		if transErr != nil {
+			return nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", b.filename, b.lineNum, transErr)
+		}
+		return trans, nil
+	})
 }
 
 type parser struct {
@@ -42,11 +53,9 @@ type parser struct {
 	prevDate    time.Time
 }
 
-func parseLedger(filename string, ledgerReader io.Reader) (t []*Transaction, err error) {
+func parseBlocks(filename string, ledgerReader io.Reader) ([]block, error) {
 	var lp parser
 	lp.scanner = newLineScanner(filename, ledgerReader)
-
-	var tlist []*Transaction
 
 	blocks := []block{}
 	comments := []string{}
@@ -83,11 +92,21 @@ func parseLedger(filename string, ledgerReader io.Reader) (t []*Transaction, err
 		case "account":
 			lp.skipAccount()
 		case "include":
-			trxs, err := lp.include(after)
+			paths, _ := filepath.Glob(filepath.Join(filepath.Dir(lp.scanner.Name()), after))
+			if len(paths) < 1 {
+				return nil, fmt.Errorf(
+					"%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found"))
+			}
+
+			b, err := lo.FlatMapErr(paths, func(path string, _ int) ([]block, error) {
+				f, _ := os.Open(path)
+				defer f.Close()
+				return parseBlocks(path, f)
+			})
 			if err != nil {
 				return nil, err
 			}
-			tlist = append(tlist, trxs...)
+			blocks = append(blocks, b...)
 		default:
 			transDate, derr := lp.parseDate(before)
 			if derr != nil {
@@ -99,15 +118,7 @@ func parseLedger(filename string, ledgerReader io.Reader) (t []*Transaction, err
 		}
 	}
 
-	for _, block := range blocks {
-		trans, transErr := block.parseTransaction()
-		if transErr != nil {
-			return nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", block.filename, block.lineNum, transErr)
-		}
-		tlist = append(tlist, trans)
-	}
-
-	return tlist, nil
+	return blocks, nil
 }
 
 func (lp *parser) skipAccount() {
@@ -117,20 +128,6 @@ func (lp *parser) skipAccount() {
 			return
 		}
 	}
-}
-
-func (lp *parser) include(after string) (t []*Transaction, err error) {
-	paths, _ := filepath.Glob(filepath.Join(filepath.Dir(lp.scanner.Name()), after))
-	if len(paths) < 1 {
-		return nil, fmt.Errorf(
-			"%s:%d: unable to include file(%s): %w", lp.scanner.Name(), lp.scanner.LineNumber(), after, errors.New("not found"))
-	}
-
-	return lo.FlatMapErr(paths, func(path string, _ int) ([]*Transaction, error) {
-		f, _ := os.Open(path)
-		defer f.Close()
-		return parseLedger(path, f)
-	})
 }
 
 func (lp *parser) parseDate(dateString string) (transDate time.Time, err error) {
