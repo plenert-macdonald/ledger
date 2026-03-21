@@ -22,54 +22,56 @@ var equityCmd = &cobra.Command{
 			log.Fatalln(err)
 		}
 
-		var trans ledger.Transaction
-		trans.Payee = "Opening Balances"
-		trans.Date = time.Now()
-		if len(generalLedger) > 0 {
-			trans.Date = generalLedger[len(generalLedger)-1].Date
-		}
-
-		filterArr := args
-		balances := make(map[string]decimal.Decimal)
-		for _, trans := range generalLedger {
-			for _, accChange := range trans.AccountChanges {
-				inFilter := len(filterArr) == 0
-				for _, filter := range filterArr {
-					if strings.Contains(accChange.Name, filter) {
-						inFilter = true
-					}
-				}
-				if inFilter {
-					if decNum, ok := balances[accChange.Name]; !ok {
-						balances[accChange.Name] = accChange.Balance
-					} else {
-						balances[accChange.Name] = decNum.Add(accChange.Balance)
-					}
-				}
-			}
-		}
-
-		eqBal := decimal.Zero
-		for name, bal := range balances {
-			if !bal.IsZero() {
-				trans.AccountChanges = append(trans.AccountChanges, ledger.Account{
-					Name:    name,
-					Balance: bal,
-				})
-			}
-			eqBal = eqBal.Add(bal)
-		}
-		trans.AccountChanges = append(trans.AccountChanges, ledger.Account{
-			Name:    "Equity",
-			Balance: eqBal.Neg(),
-		})
-
-		slices.SortFunc(trans.AccountChanges, func(a, b ledger.Account) int {
-			return strings.Compare(a.Name, b.Name)
-		})
-
-		WriteTransaction(os.Stdout, &trans, 80)
+		WriteTransaction(os.Stdout, computeEquity(generalLedger, args), 80)
 	},
+}
+
+func computeEquity(generalLedger []*Transaction, filterArr []string) *Transaction {
+	var trans ledger.Transaction
+	trans.Payee = "Opening Balances"
+	trans.Date = time.Now()
+	if len(generalLedger) > 0 {
+		trans.Date = generalLedger[len(generalLedger)-1].Date
+	}
+
+	balances := make(map[string]decimal.Decimal)
+	for _, trans := range generalLedger {
+		for _, accChange := range trans.AccountChanges {
+			inFilter := len(filterArr) == 0
+			for _, filter := range filterArr {
+				if strings.Contains(accChange.Name, filter) {
+					inFilter = true
+				}
+			}
+			if inFilter {
+				if decNum, ok := balances[accChange.Name]; !ok {
+					balances[accChange.Name] = accChange.Balance
+				} else {
+					balances[accChange.Name] = decNum.Add(accChange.Balance)
+				}
+			}
+		}
+	}
+
+	eqBal := decimal.Zero
+	for name, bal := range balances {
+		if !bal.IsZero() {
+			trans.AccountChanges = append(trans.AccountChanges, ledger.Account{
+				Name:    name,
+				Balance: bal,
+			})
+		}
+		eqBal = eqBal.Add(bal)
+	}
+	trans.AccountChanges = append(trans.AccountChanges, ledger.Account{
+		Name:    "Equity",
+		Balance: eqBal.Neg(),
+	})
+
+	slices.SortFunc(trans.AccountChanges, func(a, b ledger.Account) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return &trans
 }
 
 func init() {
