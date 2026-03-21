@@ -8,6 +8,7 @@ require (
 	github.com/andybalholm/brotli v1.0.6
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de
 	github.com/expr-lang/expr v1.17.8
+	github.com/google/go-cmp v0.7.0
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/ivanpirog/coloredcobra v1.0.1
 	github.com/jbrukh/bayesian v0.0.0-20200318221351-d726b684ca4a

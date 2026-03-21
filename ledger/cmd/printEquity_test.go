@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/howeyc/ledger"
+	"github.com/shopspring/decimal"
 )
 
 func Test_computeEquity(t *testing.T) {
@@ -20,14 +21,14 @@ func Test_computeEquity(t *testing.T) {
 			generalLedger: []*ledger.Transaction{
 				&ledger.Transaction{
 					AccountChanges: []ledger.Account{
-						{Name: "Equity:Fake", Balance: 10},
-						{Name: "Liability:Real", Balance: -10},
+						{Name: "Equity:Fake", Balance: decimal.NewFromInt(10)},
+						{Name: "Liability:Real", Balance: decimal.NewFromInt(-10)},
 					},
 				},
 				&ledger.Transaction{
 					AccountChanges: []ledger.Account{
-						{Name: "Equity:Real", Balance: 10},
-						{Name: "Liability:Real", Balance: -10},
+						{Name: "Equity:Real", Balance: decimal.NewFromInt(10)},
+						{Name: "Liability:Real", Balance: decimal.NewFromInt(-10)},
 					},
 				},
 			},
@@ -35,9 +36,9 @@ func Test_computeEquity(t *testing.T) {
 			want: &ledger.Transaction{
 				Payee: "Opening Balances",
 				AccountChanges: []ledger.Account{
-					{Name: "Equity", Balance: -20},
-					{Name: "Equity:Fake", Balance: 10},
-					{Name: "Equity:Real", Balance: 10},
+					{Name: "Equity", Balance: decimal.NewFromInt(-20)},
+					{Name: "Equity:Fake", Balance: decimal.NewFromInt(10)},
+					{Name: "Equity:Real", Balance: decimal.NewFromInt(10)},
 				},
 			},
 		},
