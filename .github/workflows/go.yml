@@ -16,14 +16,14 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: '>=1.20.0'
+        go-version: '>=1.26'
         check-latest: true
 
     - name: Build
       run: go build -v ./...
 
     - name: Test
-      run: go test -v -coverprofile=profile.cov . ./decimal
+      run: go test -v -coverprofile=profile.cov .
       
     - uses: shogo82148/actions-goveralls@v1
       with: 

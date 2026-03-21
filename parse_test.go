@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/howeyc/ledger/decimal"
+	"github.com/shopspring/decimal"
 )
 
 type testCase struct {
@@ -59,7 +58,7 @@ var testCases = []testCase{
 	Assets      123
 `,
 		nil,
-		errors.New(`:1: unable to parse transaction: unable to parse date(1970/02/31): parsing time "1970/02/31": extra text: "1970/02/31"`),
+		errors.New(`:1: unable to parse transaction: unable to parse date(1970/02/31): parsing time "1970/02/31": day out of range`),
 	},
 	{
 		"unbalanced error",
@@ -513,12 +512,144 @@ account Assets
 		},
 		nil,
 	},
+	{
+		"conversion factor",
+		`1970/01/01 Converted CZK to EUR
+    Assets:Wise:CZK                                                   -2000.00 @ 0.5
+    Assets:Wise:EUR                                                    1000.00
+`,
+		[]*Transaction{
+			{
+				Payee: "Converted CZK to EUR",
+				Date:  time.Unix(0, 0).UTC(),
+				AccountChanges: []Account{
+					{
+						Name:             "Assets:Wise:CZK",
+						Balance:          decimal.NewFromFloat(-2000.0),
+						ConversionFactor: p(decimal.NewFromFloat(0.5)),
+					},
+					{
+						Name:    "Assets:Wise:EUR",
+						Balance: decimal.NewFromFloat(1000.0),
+					},
+				},
+			},
+		},
+		nil,
+	},
+	{
+		"conversion",
+		`1970/01/01 Converted CZK to EUR
+    Assets:Wise:CZK                                                   -2000.00 @@ 1000.00
+    Assets:Wise:EUR                                                    1000.00
+`,
+		[]*Transaction{
+			{
+				Payee: "Converted CZK to EUR",
+				Date:  time.Unix(0, 0).UTC(),
+				AccountChanges: []Account{
+					{
+						Name:      "Assets:Wise:CZK",
+						Balance:   decimal.NewFromFloat(-2000.0),
+						Converted: p(decimal.NewFromFloat(1000)),
+					},
+					{
+						Name:    "Assets:Wise:EUR",
+						Balance: decimal.NewFromFloat(1000.0),
+					},
+				},
+			},
+		},
+		nil,
+	},
+	{
+		"conversion implicit rate",
+		`1970/01/01 Converted CZK to EUR
+    Assets:Wise:CZK                                                   CZK -2000.00
+    Assets:Wise:EUR                                                   EUR  1000.00
+`,
+		[]*Transaction{
+			{
+				Payee: "Converted CZK to EUR",
+				Date:  time.Unix(0, 0).UTC(),
+				AccountChanges: []Account{
+					{
+						Name:     "Assets:Wise:CZK",
+						Currency: "CZK",
+						Balance:  decimal.NewFromFloat(-2000.0),
+					},
+					{
+						Name:      "Assets:Wise:EUR",
+						Currency:  "EUR",
+						Balance:   decimal.NewFromFloat(1000.0),
+						Converted: p(decimal.NewFromFloat(-2000.0)),
+					},
+				},
+			},
+		},
+		nil,
+	},
+	{
+		"conversion implicit rate USD",
+		`; test comment
+1970/01/01 Wise Charges for: BALANCE
+    assets:wise                                                EUR         -8
+    expenses:bank:fees                                         EUR          8
+
+; test comment
+1970/01/01 Converted EUR to USD
+    assets:wise                                                EUR      -1000
+    assets:wise                                                USD       2060
+`,
+		[]*Transaction{
+			{
+				Payee:    "Wise Charges for: BALANCE",
+				Date:     time.Unix(0, 0).UTC(),
+				Comments: []string{"; test comment"},
+				AccountChanges: []Account{
+					{
+						Name:     "assets:wise",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-8.0),
+					},
+					{
+						Name:     "expenses:bank:fees",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(8.0),
+					},
+				},
+			},
+			{
+				Payee:    "Converted EUR to USD",
+				Date:     time.Unix(0, 0).UTC(),
+				Comments: []string{"; test comment"},
+				AccountChanges: []Account{
+					{
+						Name:     "assets:wise",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-1000.0),
+					},
+					{
+						Name:      "assets:wise",
+						Currency:  "USD",
+						Balance:   decimal.NewFromFloat(2060.0),
+						Converted: p(decimal.NewFromFloat(-1000)),
+					},
+				},
+			},
+		},
+		nil,
+	},
+}
+
+func p(d decimal.Decimal) *decimal.Decimal {
+	return &d
 }
 
 func TestParseLedger(t *testing.T) {
 	for _, tc := range testCases {
 		b := bytes.NewBufferString(tc.data)
-		transactions, err := ParseLedger(b)
+		transactions, err := ParseLedger("", b)
 		if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
 			t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
 		}
@@ -530,54 +661,134 @@ func TestParseLedger(t *testing.T) {
 	}
 }
 
-func TestParseLedgerAsync(t *testing.T) {
-	buf := bytes.NewBufferString(`; test
-account bam:bam
-	subacc line  ; sub comment
-	another subacc line
-
-1970/01/01 Payee
-	Assets       50
-	Expenses
-
-1970/02/30 Error  ; oops
-	Assets   30
-	Expenses
-
-1970/01/01bbafafdaf;bad comment
-	Assets 20
-	Expenses
-
-account endofledger`)
-
-	tc, ec := ParseLedgerAsync(buf)
-
-	var trans []*Transaction
-	var errors []error
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		for t := range tc {
-			trans = append(trans, t)
-		}
-		wg.Done()
-	}()
-	go func() {
-		for e := range ec {
-			errors = append(errors, e)
-		}
-		wg.Done()
-	}()
-	wg.Wait()
-
-	if len(trans) < 1 || len(errors) < 1 {
-		t.Error("async parse failed")
-	}
-}
-
 func BenchmarkParseLedger(b *testing.B) {
 	for b.Loop() {
 		_, _ = ParseLedgerFile("testdata/ledgerBench.dat")
+	}
+}
+
+func TestAccount_parsePosting(t *testing.T) {
+	tests := []struct {
+		name        string
+		trimmedLine string
+		want        Account
+		wantErr     bool
+	}{
+		{
+			"simple",
+			"Expense  123",
+			Account{Name: "Expense", Balance: decimal.NewFromFloat(123.0)},
+			false,
+		},
+		{
+			"empty",
+			"Expense",
+			Account{Name: "Expense", Balance: decimal.NewFromFloat(0.0)},
+			false,
+		},
+		{
+			"spaces",
+			"Expense:Cranks Unlimited	10",
+			Account{Name: "Expense:Cranks Unlimited", Balance: decimal.NewFromFloat(10.0)},
+			false,
+		},
+		{
+			"multiply",
+			"Expense  (123*2)",
+			Account{Name: "Expense", Balance: decimal.NewFromFloat(246.0)},
+			false,
+		},
+		{
+			"slash",
+			"Expense/test   158",
+			Account{Name: "Expense/test", Balance: decimal.NewFromFloat(158.0)},
+			false,
+		},
+		{
+			"negative",
+			"Expense/test   -158",
+			Account{Name: "Expense/test", Balance: decimal.NewFromFloat(-158.0)},
+			false,
+		},
+		{
+			"math",
+			"Expense:Bank of:Money  (123*2+3)",
+			Account{Name: "Expense:Bank of:Money", Balance: decimal.NewFromFloat(249.0)},
+			false,
+		},
+		{
+			"math with spaces",
+			"Expense/test  (123 * 3)",
+			Account{Name: "Expense/test", Balance: decimal.NewFromFloat(123 * 3)},
+			false,
+		},
+		{
+			"converted",
+			"Expense/test   158 @@ 200",
+			Account{Name: "Expense/test", Balance: decimal.NewFromFloat(158.0), Converted: p(decimal.NewFromFloat(200.0))},
+			false,
+		},
+		{
+			"conversion",
+			"Expense/test   100 @ 2",
+			Account{Name: "Expense/test", Currency: "", Balance: decimal.NewFromFloat(100.0), ConversionFactor: p(decimal.NewFromFloat(2.0))},
+			false,
+		},
+		{
+			"conversion heirarchy",
+			"Assets:Wise:CZK                                                   -2000.00 @ 0.5",
+			Account{Name: "Assets:Wise:CZK", Balance: decimal.NewFromFloat(-2000.0), ConversionFactor: p(decimal.NewFromFloat(0.5))},
+			false,
+		},
+		{
+			"negative",
+			"Expense/test   EUR -158",
+			Account{Name: "Expense/test", Currency: "EUR", Balance: decimal.NewFromFloat(-158.0)},
+			false,
+		},
+		{
+			"math",
+			"Expense:Bank of:Money  USD  (123*2+3)",
+			Account{Name: "Expense:Bank of:Money", Currency: "USD", Balance: decimal.NewFromFloat(249.0)},
+			false,
+		},
+		{
+			"math with spaces",
+			"Expense/test    CZK  (123 * 3)",
+			Account{Name: "Expense/test", Currency: "CZK", Balance: decimal.NewFromFloat(123 * 3)},
+			false,
+		},
+		{
+			"converted",
+			"Expense/test   USD 158 @@ 200",
+			Account{Name: "Expense/test", Currency: "USD", Balance: decimal.NewFromFloat(158.0), Converted: p(decimal.NewFromFloat(200.0))},
+			false,
+		},
+		{
+			"conversion",
+			"Expense/test   $ 100 @ 2",
+			Account{Name: "Expense/test", Currency: "$", Balance: decimal.NewFromFloat(100.0), ConversionFactor: p(decimal.NewFromFloat(2.0))},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := Account{}
+			gotErr := a.parsePosting(tt.trimmedLine, "")
+			if gotErr != nil {
+				if !tt.wantErr {
+					t.Errorf("parsePosting() failed: %v", gotErr)
+				}
+				return
+			}
+			aJson, _ := json.Marshal(a)
+			wantJson, _ := json.Marshal(tt.want)
+			if string(aJson) != string(wantJson) {
+				t.Errorf("got %+v wanted %+v", string(aJson), string(wantJson))
+			}
+			if tt.wantErr {
+				t.Fatal("parsePosting() succeeded unexpectedly")
+			}
+		})
 	}
 }

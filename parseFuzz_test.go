@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/howeyc/ledger/decimal"
+	"github.com/shopspring/decimal"
 )
 
 func FuzzParseLedger(f *testing.F) {
@@ -17,11 +17,20 @@ func FuzzParseLedger(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		b := bytes.NewBufferString(s)
-		trans, _ := ParseLedger(b)
+		trans, _ := ParseLedger("", b)
 		overall := decimal.Zero
 		for _, t := range trans {
 			for _, p := range t.AccountChanges {
-				overall = overall.Add(p.Balance)
+				switch {
+				case p.Converted != nil:
+					overall = overall.Add(p.Converted.Neg())
+				case p.ConversionFactor != nil:
+					overall = overall.Add(p.Balance.Mul(
+						*p.ConversionFactor,
+					))
+				default:
+					overall = overall.Add(p.Balance)
+				}
 			}
 		}
 		if !overall.IsZero() {

@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"strings"
@@ -11,10 +12,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/howeyc/ledger"
-	"github.com/howeyc/ledger/decimal"
 	"github.com/howeyc/ledger/ledger/cmd/internal/import/camt"
+	"github.com/howeyc/ledger/ledger/cmd/internal/import/iif"
 	"github.com/howeyc/ledger/ledger/cmd/internal/import/qfx"
+	"github.com/howeyc/ledger/ledger/cmd/internal/import/qif"
 	"github.com/jbrukh/bayesian"
+	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 )
 
@@ -27,15 +30,75 @@ var negateAmount bool
 var allowMatching bool
 var fieldDelimiter string
 var scaleFactor float64
+var overrideCurrency string
 
-func trainClassifier(generalLedger []*ledger.Transaction, matchingAccount string) *bayesian.Classifier {
-	allAccounts := ledger.GetBalances(generalLedger, []string{})
-	classes := make([]bayesian.Class, len(allAccounts))
-	for i, bal := range allAccounts {
-		classes[i] = bayesian.Class(bal.Name)
+type Importer struct {
+	filename        string
+	reader          *os.File
+	decScale        decimal.Decimal
+	matchingAccount string
+	generalLedger   []*ledger.Transaction
+	classifier      *bayesian.Classifier
+}
+
+func NewImporter(accountSubstring, filename string) *Importer {
+	imp := Importer{
+		filename: filename,
+		decScale: decimal.NewFromFloat(scaleFactor),
 	}
+
+	fileReader, err := os.Open(filename)
+	if err != nil {
+		fmt.Println("CSV: ", err)
+		return nil
+	}
+	imp.reader = fileReader
+
+	// If a ledger file path is provided, load it and train the classifier.
+	// Otherwise, skip loading and prediction will fall back to "unknown:unknown".
+	if ledgerFilePath != "" {
+		generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
+		if parseError != nil {
+			fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
+			return nil
+		}
+		imp.generalLedger = generalLedger
+
+		matchingAccount, err := imp.findMatchingAccount(accountSubstring)
+		if err != nil {
+			fmt.Println(err)
+			return nil
+		}
+		imp.matchingAccount = matchingAccount
+
+		imp.classifier = imp.trainClassifier(imp.matchingAccount)
+	} else {
+		imp.matchingAccount = accountSubstring
+	}
+
+	return &imp
+}
+
+func (imp *Importer) Close() {
+	imp.reader.Close()
+}
+
+func (imp *Importer) trainClassifier(matchingAccount string) *bayesian.Classifier {
+	allAccounts := ledger.GetBalances(imp.generalLedger, []string{})
+	uniqueAccounts := make(map[string]bool)
+	for _, acc := range allAccounts {
+		if ok, _ := uniqueAccounts[acc.Name]; !ok {
+			uniqueAccounts[acc.Name] = true
+		}
+	}
+
+	classes := []bayesian.Class{}
+	for name := range uniqueAccounts {
+		classes = append(classes, bayesian.Class(name))
+	}
+
 	classifier := bayesian.NewClassifier(classes...)
-	for _, tran := range generalLedger {
+	for _, tran := range imp.generalLedger {
 		payeeWords := strings.Fields(tran.Payee)
 		// learn accounts names (except matchingAccount) for transactions where matchingAccount is present
 		learnName := false
@@ -57,14 +120,18 @@ func trainClassifier(generalLedger []*ledger.Transaction, matchingAccount string
 	return classifier
 }
 
-func predictAccount(classifier *bayesian.Classifier, inputPayeeWords []string) string {
+func (imp *Importer) predictAccount(inputPayeeWords []string) string {
+	if imp.classifier == nil {
+		return "unknown:unknown"
+	}
+
 	// Classify into expense account
 
 	// Find the highest and second highest scores
 	highScore1 := math.Inf(-1)
 	highScore2 := math.Inf(-1)
 	matchIdx := 0
-	scores, _, _ := classifier.LogScores(inputPayeeWords)
+	scores, _, _ := imp.classifier.LogScores(inputPayeeWords)
 	for j, score := range scores {
 		if score > highScore1 {
 			highScore2 = highScore1
@@ -75,15 +142,15 @@ func predictAccount(classifier *bayesian.Classifier, inputPayeeWords []string) s
 	// If the difference between the highest and second highest scores is greater than 10
 	// then it indicates that highscore is a high confidence match
 	if highScore1-highScore2 > 10 {
-		return string(classifier.Classes[matchIdx])
+		return string(imp.classifier.Classes[matchIdx])
 	} else {
 		return "unknown:unknown"
 	}
 }
 
-func findMatchingAccount(generalLedger []*ledger.Transaction, accountSubstring string) (string, error) {
+func (imp *Importer) findMatchingAccount(accountSubstring string) (string, error) {
 	var matchingAccount string
-	matchingAccounts := ledger.GetBalances(generalLedger, []string{accountSubstring})
+	matchingAccounts := ledger.GetBalances(imp.generalLedger, []string{accountSubstring})
 	if len(matchingAccounts) < 1 {
 		return "", ErrNoMatchingAccount
 	}
@@ -100,37 +167,14 @@ func findMatchingAccount(generalLedger []*ledger.Transaction, accountSubstring s
 	return matchingAccount, nil
 }
 
-func importCSV(accountSubstring, csvFileName string) {
-	decScale := decimal.NewFromFloat(scaleFactor)
-
-	csvFileReader, err := os.Open(csvFileName)
-	if err != nil {
-		fmt.Println("CSV: ", err)
-		return
-	}
-	defer csvFileReader.Close()
-
-	generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
-	if parseError != nil {
-		fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
-		return
-	}
-
-	matchingAccount, err := findMatchingAccount(generalLedger, accountSubstring)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	csvReader := csv.NewReader(csvFileReader)
+func (imp *Importer) importCSV() {
+	csvReader := csv.NewReader(imp.reader)
 	csvReader.Comma, _ = utf8.DecodeRuneInString(fieldDelimiter)
 	csvRecords, cerr := csvReader.ReadAll()
 	if cerr != nil {
 		fmt.Println("CSV parse error:", cerr.Error())
 		return
 	}
-
-	classifier := trainClassifier(generalLedger, matchingAccount)
 
 	// Find columns from header
 	var dateColumn, payeeColumn, amountColumn, commentColumn int
@@ -160,12 +204,12 @@ func importCSV(accountSubstring, csvFileName string) {
 	}
 
 	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
-	csvAccount := ledger.Account{Name: matchingAccount, Balance: decimal.Zero}
+	csvAccount := ledger.Account{Name: imp.matchingAccount, Balance: decimal.Zero}
 	for _, record := range csvRecords[1:] {
 		inputPayeeWords := strings.Fields(record[payeeColumn])
 		csvDate, _ := time.Parse(csvDateFormat, record[dateColumn])
-		if allowMatching || !existingTransaction(generalLedger, csvDate, record[payeeColumn]) {
-			expenseAccount.Name = predictAccount(classifier, inputPayeeWords)
+		if allowMatching || !imp.existingTransaction(csvDate, record[payeeColumn]) {
+			expenseAccount.Name = imp.predictAccount(inputPayeeWords)
 
 			// Parse error, set to zero
 			if dec, derr := decimal.NewFromString(record[amountColumn]); derr != nil {
@@ -180,16 +224,19 @@ func importCSV(accountSubstring, csvFileName string) {
 			}
 
 			// Apply scale
-			expenseAccount.Balance = expenseAccount.Balance.Mul(decScale)
+			expenseAccount.Balance = expenseAccount.Balance.Mul(imp.decScale)
 
 			// Csv amount is the negative of the expense amount
 			csvAccount.Balance = expenseAccount.Balance.Neg()
 
-			// Create valid transaction for print in ledger format
 			trans := &ledger.Transaction{Date: csvDate, Payee: record[payeeColumn]}
 			trans.AccountChanges = []ledger.Account{csvAccount, expenseAccount}
 
-			// Comment
+			if overrideCurrency != "" {
+				for i := range trans.AccountChanges {
+					trans.AccountChanges[i].Currency = overrideCurrency
+				}
+			}
 			if commentColumn >= 0 && record[commentColumn] != "" {
 				trans.Comments = []string{";" + record[commentColumn]}
 			}
@@ -198,38 +245,15 @@ func importCSV(accountSubstring, csvFileName string) {
 	}
 }
 
-func importCamt(accountSubstring, camtFileName string) {
-	decScale := decimal.NewFromFloat(scaleFactor)
-
-	fileReader, err := os.Open(camtFileName)
-	if err != nil {
-		fmt.Println("CAMT: ", err, camtFileName)
-		return
-	}
-	defer fileReader.Close()
-
-	generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
-	if parseError != nil {
-		fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
-		return
-	}
-
-	matchingAccount, err := findMatchingAccount(generalLedger, accountSubstring)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	classifier := trainClassifier(generalLedger, matchingAccount)
-
-	entries, err := camt.ParseCamt(fileReader)
+func (imp *Importer) importCamt() {
+	entries, err := camt.ParseCamt(imp.reader)
 	if err != nil {
 		fmt.Println("CAMT parse error:", err.Error())
 		return
 	}
 
 	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
-	camtAccount := ledger.Account{Name: matchingAccount, Balance: decimal.Zero}
+	camtAccount := ledger.Account{Name: imp.matchingAccount, Balance: decimal.Zero}
 	for _, entry := range entries {
 		dateTime, err := time.Parse(time.RFC3339, entry.BookgDt.DtTm)
 		if err != nil {
@@ -259,7 +283,7 @@ func importCamt(accountSubstring, camtFileName string) {
 		}
 		inputPayeeWords := strings.Fields(payee)
 
-		expenseAccount.Name = predictAccount(classifier, inputPayeeWords)
+		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
 		expenseAccount.Balance = amount
 
 		// Determine if debit
@@ -269,16 +293,22 @@ func importCamt(accountSubstring, camtFileName string) {
 		}
 
 		// Apply scale
-		expenseAccount.Balance = expenseAccount.Balance.Mul(decScale)
+		expenseAccount.Balance = expenseAccount.Balance.Mul(imp.decScale)
 
 		// Csv amount is the negative of the expense amount
 		camtAccount.Balance = expenseAccount.Balance.Neg()
 
-		// Create valid transaction for print in ledger format
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
 		trans.AccountChanges = []ledger.Account{camtAccount, expenseAccount}
-
-		// Comment
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		} else if entry.Amt.Ccy != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = entry.Amt.Ccy
+			}
+		}
 		if reference != "" {
 			trans.Comments = []string{";" + reference}
 		}
@@ -286,38 +316,120 @@ func importCamt(accountSubstring, camtFileName string) {
 	}
 }
 
-func importQFX(accountSubstring, qfxFileName string) {
-	decScale := decimal.NewFromFloat(scaleFactor)
-
-	fileReader, err := os.Open(qfxFileName)
+func (imp *Importer) importQIF() {
+	entries, err := qif.ParseQIF(imp.reader)
 	if err != nil {
-		fmt.Println("QFX: ", err, qfxFileName)
-		return
-	}
-	defer fileReader.Close()
-
-	generalLedger, parseError := ledger.ParseLedgerFile(ledgerFilePath)
-	if parseError != nil {
-		fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
+		fmt.Println("QIF parse error:", err.Error())
 		return
 	}
 
-	matchingAccount, err := findMatchingAccount(generalLedger, accountSubstring)
+	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
+	qifAccount := ledger.Account{Name: imp.matchingAccount, Balance: decimal.Zero}
+	for _, entry := range entries {
+		// Parse date (QIF dates are often locale-specific; assume mm/dd/yyyy here)
+		dateTime, err := time.Parse("01/02/2006", entry.Date)
+		if err != nil {
+			// Try an alternate common QIF date format (dd/mm/yyyy)
+			dateTime, err = time.Parse("02/01/2006", entry.Date)
+			if err != nil {
+				fmt.Println("QIF date parse error:", err.Error())
+				continue
+			}
+		}
+
+		// Parse amount
+		amount, err := decimal.NewFromString(entry.Amount)
+		if err != nil {
+			fmt.Println("QIF amount parse error:", err.Error())
+			continue
+		}
+
+		payee := entry.Payee
+		inputPayeeWords := strings.Fields(payee)
+
+		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
+		expenseAccount.Balance = amount
+
+		// Apply scale
+		expenseAccount.Balance = expenseAccount.Balance.Mul(imp.decScale)
+
+		// Account side is the opposite of expense
+		qifAccount.Balance = expenseAccount.Balance.Neg()
+
+		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
+		trans.AccountChanges = []ledger.Account{qifAccount, expenseAccount}
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		}
+		if len(entry.RawLines) > 0 {
+			// Join all raw lines except header/type line
+			comment := strings.Join(entry.RawLines, " ")
+			trans.Comments = []string{";" + comment}
+		}
+		WriteTransaction(os.Stdout, trans, 80)
+	}
+}
+
+func (imp *Importer) importIIF() {
+	f, err := iif.NewDecoder(imp.reader).Decode()
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 		return
 	}
 
-	classifier := trainClassifier(generalLedger, matchingAccount)
+	tx := []iif.Transaction{}
+	for _, b := range f.Blocks {
+		tr, err := iif.DeserializeTransactions(b)
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+		tx = append(tx, tr...)
+	}
 
-	entries, err := qfx.ParseQFX(fileReader)
+	for _, itx := range tx {
+		trans := &ledger.Transaction{
+			Date:  itx.Tr.Date,
+			Payee: itx.Tr.Class + " " + itx.Tr.Memo,
+		}
+		trans.AccountChanges = []ledger.Account{
+			{
+				Name:    itx.Tr.Account,
+				Balance: itx.Tr.Amount,
+			},
+		}
+
+		for _, split := range itx.Splits {
+			trans.AccountChanges = append(
+				trans.AccountChanges,
+				ledger.Account{
+					Name:    split.Account,
+					Balance: split.Amount,
+				},
+			)
+		}
+
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		}
+		WriteTransaction(os.Stdout, trans, 80)
+	}
+
+}
+
+func (imp *Importer) importQFX() {
+	entries, err := qfx.ParseQFX(imp.reader)
 	if err != nil {
 		fmt.Println("QFX parse error:", err.Error())
 		return
 	}
 
 	expenseAccount := ledger.Account{Name: "unknown:unknown", Balance: decimal.Zero}
-	qfxAccount := ledger.Account{Name: matchingAccount, Balance: decimal.Zero}
+	qfxAccount := ledger.Account{Name: imp.matchingAccount, Balance: decimal.Zero}
 	for _, entry := range entries {
 		// QFX DTPOSTED is typically YYYYMMDDHHMMSS.XXX; we only care about the date.
 		// Take the first 8 characters as YYYYMMDD.
@@ -341,20 +453,22 @@ func importQFX(accountSubstring, qfxFileName string) {
 		payee := entry.Memo
 		inputPayeeWords := strings.Fields(payee)
 
-		expenseAccount.Name = predictAccount(classifier, inputPayeeWords)
+		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
 		expenseAccount.Balance = amount
 
 		// Apply scale
-		expenseAccount.Balance = expenseAccount.Balance.Mul(decScale)
+		expenseAccount.Balance = expenseAccount.Balance.Mul(imp.decScale)
 
 		// Account side is the opposite of expense
 		qfxAccount.Balance = expenseAccount.Balance.Neg()
 
-		// Create valid transaction for print in ledger format
 		trans := &ledger.Transaction{Date: dateTime, Payee: payee}
 		trans.AccountChanges = []ledger.Account{qfxAccount, expenseAccount}
-
-		// Comment with FITID if present
+		if overrideCurrency != "" {
+			for i := range trans.AccountChanges {
+				trans.AccountChanges[i].Currency = overrideCurrency
+			}
+		}
 		if entry.FitID != "" {
 			trans.Comments = []string{";" + entry.FitID}
 		}
@@ -371,13 +485,21 @@ var importCmd = &cobra.Command{
 		accountSubstring := args[0]
 		fileName := args[1]
 
+		imp := NewImporter(accountSubstring, fileName)
+		defer imp.Close()
+
 		lower := strings.ToLower(fileName)
-		if strings.HasSuffix(lower, ".xml") {
-			importCamt(accountSubstring, fileName)
-		} else if strings.HasSuffix(lower, ".qfx") || strings.HasSuffix(lower, ".ofx") {
-			importQFX(accountSubstring, fileName)
-		} else {
-			importCSV(accountSubstring, fileName)
+		switch {
+		case strings.HasSuffix(lower, ".xml"):
+			imp.importCamt()
+		case strings.HasSuffix(lower, ".qfx") || strings.HasSuffix(lower, ".ofx"):
+			imp.importQFX()
+		case strings.HasSuffix(lower, ".qif"):
+			imp.importQIF()
+		case strings.HasSuffix(lower, ".iif"):
+			imp.importIIF()
+		default:
+			imp.importCSV()
 		}
 
 	},
@@ -391,11 +513,12 @@ func init() {
 	importCmd.Flags().Float64Var(&scaleFactor, "scale", 1.0, "Scale factor to multiply against every imported amount.")
 	importCmd.Flags().StringVar(&csvDateFormat, "date-format", "01/02/2006", "Date format.")
 	importCmd.Flags().StringVar(&fieldDelimiter, "delimiter", ",", "Field delimiter.")
+	importCmd.Flags().StringVar(&overrideCurrency, "override-currency", "", "Override detected currency for imported transactions.")
 }
 
-func existingTransaction(generalLedger []*ledger.Transaction, transDate time.Time, payee string) bool {
-	for _, trans := range generalLedger {
-		if trans.Date == transDate && strings.TrimSpace(trans.Payee) == strings.TrimSpace(payee) {
+func (imp *Importer) existingTransaction(transDate time.Time, payee string) bool {
+	for _, trans := range imp.generalLedger {
+		if trans.Date.Equal(transDate) && strings.TrimSpace(trans.Payee) == strings.TrimSpace(payee) {
 			return true
 		}
 	}

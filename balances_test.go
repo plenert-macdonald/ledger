@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/howeyc/ledger/decimal"
+	"github.com/shopspring/decimal"
 )
 
 type testBalCase struct {
@@ -71,12 +71,58 @@ var testBalCases = []testBalCase{
 		},
 		nil,
 	},
+	{
+		"conversion",
+		`2026/01/21 Converted CZK to EUR
+    CZK                                                   -2000.00 @ 0.5
+    EUR                                                    1000.00
+
+2026/01/21 Converted CZK to EUR
+    CZK                                                   -2000.00 @@ 1000.00
+    EUR                                                    1000.00
+`,
+		[]Account{
+			{
+				Name:    "CZK",
+				Balance: decimal.NewFromFloat(-4000),
+			},
+			{
+				Name:    "EUR",
+				Balance: decimal.NewFromFloat(2000),
+			},
+		},
+		nil,
+	},
+	{
+		"conversion",
+		`2026/01/21 Converted CZK to EUR
+    CZK                                            CZK       -2000.00 @ 0.5
+    EUR                                            EUR        1000.00
+
+2026/01/21 Converted CZK to EUR
+    CZK                                             CZK      -2000.00 @@ 1000.00
+    EUR                                             EUR       1000.00
+`,
+		[]Account{
+			{
+				Name:     "CZK",
+				Currency: "CZK",
+				Balance:  decimal.NewFromFloat(-4000),
+			},
+			{
+				Name:     "EUR",
+				Currency: "EUR",
+				Balance:  decimal.NewFromFloat(2000),
+			},
+		},
+		nil,
+	},
 }
 
 func TestBalanceLedger(t *testing.T) {
 	for _, tc := range testBalCases {
 		b := bytes.NewBufferString(tc.data)
-		transactions, err := ParseLedger(b)
+		transactions, err := ParseLedger("", b)
 		bals := GetBalances(transactions, []string{})
 		if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
 			t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
@@ -143,7 +189,7 @@ func TestBalancesByPeriod(t *testing.T) {
 
 `)
 
-	trans, _ := ParseLedger(b)
+	trans, _ := ParseLedger("", b)
 	partitionRb := BalancesByPeriod(trans, PeriodQuarter, RangePartition)
 	snapshotRb := BalancesByPeriod(trans, PeriodQuarter, RangeSnapshot)
 
