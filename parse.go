@@ -45,12 +45,7 @@ func ParseLedger(name string, ledgerReader io.Reader) (generalLedger []*Transact
 type parser struct {
 	scanner *linescanner
 
-	comments   []string
-	dateLayout string
-
-	strPrevDate string
-	prevDateErr error
-	prevDate    time.Time
+	comments []string
 }
 
 func parseBlocks(filename string, ledgerReader io.Reader) ([]block, error) {
@@ -108,7 +103,7 @@ func parseBlocks(filename string, ledgerReader io.Reader) ([]block, error) {
 			}
 			blocks = append(blocks, b...)
 		default:
-			transDate, derr := lp.parseDate(before)
+			transDate, derr := dateparse.ParseAny(before)
 			if derr != nil {
 				return nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", lp.scanner.Name(), lp.scanner.LineNumber(), derr)
 			}
@@ -128,26 +123,6 @@ func (lp *parser) skipAccount() {
 			return
 		}
 	}
-}
-
-func (lp *parser) parseDate(dateString string) (transDate time.Time, err error) {
-	// seen before, skip parse
-	if lp.strPrevDate == dateString {
-		return lp.prevDate, lp.prevDateErr
-	}
-
-	// Use dateparse to handle flexible date formats
-	transDate, err = dateparse.ParseAny(dateString)
-	if err != nil {
-		err = fmt.Errorf("unable to parse date(%s): %w", dateString, err)
-	}
-
-	// maybe next date is same
-	lp.strPrevDate = dateString
-	lp.prevDate = transDate
-	lp.prevDateErr = err
-
-	return
 }
 
 func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
