@@ -15,7 +15,7 @@ import (
 
 	"github.com/araddon/dateparse"
 	"github.com/howeyc/ledger"
-	"github.com/howeyc/ledger/ledger/internal/fastcolor"
+	"github.com/howeyc/ledger/ledger/cmd/internal/fastcolor"
 	"github.com/shopspring/decimal"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
