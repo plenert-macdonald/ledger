@@ -233,7 +233,7 @@ func PrintLedger(generalLedger []*ledger.Transaction, filterArr []string, column
 }
 
 // PrintRegister prints each transaction that matches the given filters.
-func PrintRegister(generalLedger []*ledger.Transaction, filterArr []string, columns int) {
+func PrintRegister(out io.Writer, generalLedger []*ledger.Transaction, filterArr []string, columns int) {
 	// Calculate widths for variable-length part of output
 	// 3 10-width columns (date, account-change, running-total)
 	// 4 spaces
@@ -250,7 +250,7 @@ func PrintRegister(generalLedger []*ledger.Transaction, filterArr []string, colu
 	colorAccount := fastcolor.FgBlue
 	colorReset := fastcolor.Reset
 
-	buf := bufio.NewWriter(os.Stdout)
+	buf := bufio.NewWriter(out)
 	// runningBalance keeps the total per currency
 	runningBalance := make(map[string]decimal.Decimal)
 

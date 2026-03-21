@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -21,7 +22,7 @@ var registerCmd = &cobra.Command{
 			log.Fatalln(err)
 		}
 		if period == "" {
-			PrintRegister(generalLedger, args, columnWidth)
+			PrintRegister(os.Stdout, generalLedger, args, columnWidth)
 		} else {
 			lperiod := ledger.Period(strings.Title(period))
 			rtrans := ledger.TransactionsByPeriod(generalLedger, lperiod)
@@ -35,7 +36,7 @@ var registerCmd = &cobra.Command{
 				}
 				fmt.Println(rt.Start.Format(transactionDateFormat), "-", rt.End.Format(transactionDateFormat))
 				fmt.Println(strings.Repeat("=", columnWidth))
-				PrintRegister(rt.Transactions, args, columnWidth)
+				PrintRegister(os.Stdout, rt.Transactions, args, columnWidth)
 			}
 		}
 	},
