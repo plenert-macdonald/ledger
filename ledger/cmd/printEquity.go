@@ -26,7 +26,7 @@ var equityCmd = &cobra.Command{
 	},
 }
 
-func computeEquity(generalLedger []*Transaction, filterArr []string) *Transaction {
+func computeEquity(generalLedger []*ledger.Transaction, filterArr []string) *ledger.Transaction {
 	var trans ledger.Transaction
 	trans.Payee = "Opening Balances"
 	trans.Date = time.Now()
