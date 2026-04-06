@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -713,16 +714,53 @@ func p(d decimal.Decimal) *decimal.Decimal {
 
 func TestParseLedger(t *testing.T) {
 	for _, tc := range testCases {
-		b := bytes.NewBufferString(tc.data)
-		transactions, err := ParseLedger("", b)
-		if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
-			t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
-		}
-		exp, _ := json.Marshal(tc.transactions)
-		got, _ := json.Marshal(transactions)
-		if string(exp) != string(got) {
-			t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			b := bytes.NewBufferString(tc.data)
+			transactions, err := ParseLedger("", b)
+			if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
+				t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
+			}
+			exp, _ := json.Marshal(tc.transactions)
+			got, _ := json.Marshal(transactions)
+			if string(exp) != string(got) {
+				t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
+			}
+		})
+	}
+}
+
+func TestEncoderLedger(t *testing.T) {
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.err != nil {
+				t.Skip("skipping error case")
+			}
+
+			// Parse original input
+			transactions, err := ParseLedger("", bytes.NewBufferString(tc.data))
+			if err != nil {
+				t.Fatalf("initial parse failed: %v", err)
+			}
+
+			// Encode parsed transactions
+			var buf strings.Builder
+			enc := NewEncoder(&buf, 80, strings.Repeat(" ", 80))
+			if err := enc.Encode(transactions); err != nil {
+				t.Fatalf("encode failed: %v", err)
+			}
+
+			// Re-parse encoded output
+			reparsed, err := ParseLedger("", strings.NewReader(buf.String()))
+			if err != nil {
+				t.Fatalf("re-parse failed: %v\nencoded:\n%s", err, buf.String())
+			}
+
+			exp, _ := json.Marshal(transactions)
+			got, _ := json.Marshal(reparsed)
+			if string(exp) != string(got) {
+				t.Errorf("round-trip mismatch:\nencoded:\n%s\nexpected:\n%s\ngot:\n%s", buf.String(), exp, got)
+			}
+		})
 	}
 }
 
