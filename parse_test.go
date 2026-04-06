@@ -640,6 +640,54 @@ account Assets
 		},
 		nil,
 	},
+	{
+		"balance assertions",
+		`; test comment
+2025-01-01 opening balances
+    assets:capital_one                    USD 400.00 = USD 400.00
+    assets:ibkr                           EUR 600.00 = EUR 600.00
+	equity:opening/closing balances       EUR -600.00
+    equity:opening/closing balances       USD -400.00
+`,
+		[]*Transaction{
+			{
+				Payee:    "Wise Charges for: BALANCE",
+				Date:     time.Unix(0, 0).UTC(),
+				Comments: []string{"; test comment"},
+				AccountChanges: []Account{
+					{
+						Name:     "assets:wise",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-8.0),
+					},
+					{
+						Name:     "expenses:bank:fees",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(8.0),
+					},
+				},
+			},
+			{
+				Payee:    "Converted EUR to USD",
+				Date:     time.Unix(0, 0).UTC(),
+				Comments: []string{"; test comment"},
+				AccountChanges: []Account{
+					{
+						Name:     "assets:wise",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-1000.0),
+					},
+					{
+						Name:      "assets:wise",
+						Currency:  "USD",
+						Balance:   decimal.NewFromFloat(2060.0),
+						Converted: p(decimal.NewFromFloat(-1000)),
+					},
+				},
+			},
+		},
+		nil,
+	},
 }
 
 func p(d decimal.Decimal) *decimal.Decimal {
