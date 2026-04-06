@@ -164,7 +164,8 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 			`(?P<amount>[\-]?\d+(?:\.\d+)?|\([0-9+\-*\/. ]+\))` +
 			`(?:\s*(?:@@\s*` +
 			`(?P<converted>[\-]?\d+(?:\.\d+)?)|@\s*` +
-			`(?P<factor>[\-]?\d+(?:\.\d+)?)))?)?\s*$`,
+			`(?P<factor>[\-]?\d+(?:\.\d+)?)))?` +
+			`(?:\s*=\s*(?:[A-Z\$]+\s+)?[\-]?\d+(?:\.\d+)?)?)?\s*$`,
 	)
 
 	m := re.FindStringSubmatch(trimmedLine)

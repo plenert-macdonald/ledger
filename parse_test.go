@@ -70,6 +70,17 @@ var testCases = []testCase{
 		errors.New(":3: unable to parse transaction: unable to balance transaction: no empty account to place extra balance"),
 	},
 	{
+		"unbalanced error multicurrency",
+		`1970/01/01 Payee
+	Expense/test  EUR 100
+	Assets      USD 100
+	Other       USD -200
+	More        EUR -100
+`,
+		nil,
+		errors.New(":3: unable to parse transaction: unable to balance transaction: no empty account to place extra balance"),
+	},
+	{
 		"single posting",
 		`1970/01/01 Payee
 	Assets:Account    5`,
@@ -651,37 +662,29 @@ account Assets
 `,
 		[]*Transaction{
 			{
-				Payee:    "Wise Charges for: BALANCE",
-				Date:     time.Unix(0, 0).UTC(),
+				Payee:    "opening balances",
+				Date:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 				Comments: []string{"; test comment"},
 				AccountChanges: []Account{
 					{
-						Name:     "assets:wise",
-						Currency: "EUR",
-						Balance:  decimal.NewFromFloat(-8.0),
+						Name:     "assets:capital_one",
+						Currency: "USD",
+						Balance:  decimal.NewFromFloat(400.0),
 					},
 					{
-						Name:     "expenses:bank:fees",
+						Name:     "assets:ibkr",
 						Currency: "EUR",
-						Balance:  decimal.NewFromFloat(8.0),
-					},
-				},
-			},
-			{
-				Payee:    "Converted EUR to USD",
-				Date:     time.Unix(0, 0).UTC(),
-				Comments: []string{"; test comment"},
-				AccountChanges: []Account{
-					{
-						Name:     "assets:wise",
-						Currency: "EUR",
-						Balance:  decimal.NewFromFloat(-1000.0),
+						Balance:  decimal.NewFromFloat(600.0),
 					},
 					{
-						Name:      "assets:wise",
-						Currency:  "USD",
-						Balance:   decimal.NewFromFloat(2060.0),
-						Converted: p(decimal.NewFromFloat(-1000)),
+						Name:     "equity:opening/closing balances",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-600.0),
+					},
+					{
+						Name:     "equity:opening/closing balances",
+						Currency: "USD",
+						Balance:  decimal.NewFromFloat(-400.0),
 					},
 				},
 			},
