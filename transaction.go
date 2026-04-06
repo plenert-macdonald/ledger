@@ -170,7 +170,7 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 		}
 	}
 
-	if sumOtherRaw.IsZero() {
+	if sumBase.IsZero() || sumOtherRaw.IsZero() {
 		return nil
 	}
 	if sumBase.Add(sumOtherRaw).IsZero() {

@@ -78,7 +78,7 @@ var testCases = []testCase{
 	More        EUR -100
 `,
 		nil,
-		errors.New(":3: unable to parse transaction: unable to balance transaction: no empty account to place extra balance"),
+		errors.New(":5: unable to parse transaction: unable to balance transaction: no empty account to place extra balance"),
 	},
 	{
 		"single posting",
@@ -690,6 +690,18 @@ account Assets
 			},
 		},
 		nil,
+	},
+	{
+		"balance assertions",
+		`; test comment
+2025-01-01 opening balances
+    assets:capital_one                    USD 400.00 = USD 400.00
+    assets:ibkr                           EUR 600.00 = EUR 600.00
+	equity:opening/closing balances       EUR -600.00
+    equity:opening/closing balances       USD -500.00
+`,
+		nil,
+		errors.New(":1: unable to parse transaction: balance assertion failed"),
 	},
 }
 
