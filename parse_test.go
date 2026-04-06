@@ -667,14 +667,16 @@ account Assets
 				Comments: []string{"; test comment"},
 				AccountChanges: []Account{
 					{
-						Name:     "assets:capital_one",
-						Currency: "USD",
-						Balance:  decimal.NewFromFloat(400.0),
+						Name:          "assets:capital_one",
+						Currency:      "USD",
+						Balance:       decimal.NewFromFloat(400.0),
+						BalanceAssert: p(decimal.NewFromFloat(400.0)),
 					},
 					{
-						Name:     "assets:ibkr",
-						Currency: "EUR",
-						Balance:  decimal.NewFromFloat(600.0),
+						Name:          "assets:ibkr",
+						Currency:      "EUR",
+						Balance:       decimal.NewFromFloat(600.0),
+						BalanceAssert: p(decimal.NewFromFloat(600.0)),
 					},
 					{
 						Name:     "equity:opening/closing balances",
@@ -696,12 +698,12 @@ account Assets
 		`; test comment
 2025-01-01 opening balances
     assets:capital_one                    USD 400.00 = USD 400.00
-    assets:ibkr                           EUR 600.00 = EUR 600.00
+    assets:ibkr                           EUR 600.00 = EUR 500.00
 	equity:opening/closing balances       EUR -600.00
-    equity:opening/closing balances       USD -500.00
+    equity:opening/closing balances       USD -400.00
 `,
 		nil,
-		errors.New(":1: unable to parse transaction: balance assertion failed"),
+		ErrBalanceAssertionFailed,
 	},
 }
 

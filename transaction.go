@@ -10,6 +10,7 @@ var (
 	ErrNeedAtLeastTwoPostings        = errors.New("need at least two postings")
 	ErrNoEmptyAccountForExtraBalance = errors.New("unable to balance transaction: no empty account to place extra balance")
 	ErrMoreThanOneEmptyAccountInTx   = errors.New("unable to balance transaction: more than one account empty")
+	ErrBalanceAssertionFailed         = errors.New("balance assertion failed")
 )
 
 func (t *Transaction) IsBalanced() error {
