@@ -31,6 +31,7 @@ func (e *Encoder) Encode(v any) error {
 				return err
 			}
 		}
+		return nil
 	case *Transaction:
 		return e.encodeTransaction(t)
 	}
@@ -79,6 +80,9 @@ func (e *Encoder) encodeTransaction(trans *Transaction) error {
 			outBalanceString = outBalanceString + " @@ " + accChange.Converted.StringFixedBank(2)
 		} else if accChange.ConversionFactor != nil {
 			outBalanceString = outBalanceString + " @ " + accChange.ConversionFactor.String()
+		}
+		if accChange.BalanceAssert != nil {
+			outBalanceString = outBalanceString + " = " + accChange.BalanceAssert.StringFixedBank(2)
 		}
 		spaceCount := columns - 4 - utf8.RuneCountInString(accChange.Name) - utf8.RuneCountInString(outBalanceString)
 		if spaceCount < 1 {
