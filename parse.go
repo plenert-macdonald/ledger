@@ -34,13 +34,40 @@ func ParseLedger(name string, ledgerReader io.Reader) (generalLedger []*Transact
 		return nil, err
 	}
 
-	return lo.MapErr(blocks, func(b block, _ int) (*Transaction, error) {
+	transactions, err := lo.MapErr(blocks, func(b block, _ int) (*Transaction, error) {
 		trans, transErr := b.parseTransaction()
 		if transErr != nil {
 			return nil, fmt.Errorf("%s:%d: unable to parse transaction: %w", b.filename, b.lineNum, transErr)
 		}
 		return trans, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err = checkBalanceAssertions(transactions); err != nil {
+		return nil, err
+	}
+
+	return transactions, nil
+}
+
+func checkBalanceAssertions(transactions []*Transaction) error {
+	// Track running balances per (account, currency) pair
+	type acctKey struct{ name, currency string }
+	running := make(map[acctKey]decimal.Decimal)
+
+	for _, trans := range transactions {
+		for _, acc := range trans.AccountChanges {
+			key := acctKey{acc.Name, acc.Currency}
+			running[key] = running[key].Add(acc.Balance)
+
+			if acc.BalanceAssert != nil && !running[key].Equal(*acc.BalanceAssert) {
+				return ErrBalanceAssertionFailed
+			}
+		}
+	}
+	return nil
 }
 
 type parser struct {
@@ -154,9 +181,11 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 
 	// Regex groups:
 	// 1: account name
-	// 2: amount (number or parenthesized expression)
-	// 3: @@ converted amount
-	// 4: @ conversion rate
+	// 2: currency
+	// 3: amount (number or parenthesized expression)
+	// 4: @@ converted amount
+	// 5: @ conversion rate
+	// 6: balance assertion amount
 	re := regexp.MustCompile(
 		`^(?P<name>.+?)` +
 			`(?:(?:\s{2,}|\t)` +
@@ -164,7 +193,8 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 			`(?P<amount>[\-]?\d+(?:\.\d+)?|\([0-9+\-*\/. ]+\))` +
 			`(?:\s*(?:@@\s*` +
 			`(?P<converted>[\-]?\d+(?:\.\d+)?)|@\s*` +
-			`(?P<factor>[\-]?\d+(?:\.\d+)?)))?)?\s*$`,
+			`(?P<factor>[\-]?\d+(?:\.\d+)?)))?` +
+			`(?:\s*=\s*(?:[A-Z\$]+\s+)?(?P<assert>[\-]?\d+(?:\.\d+)?))?)?\s*$`,
 	)
 
 	m := re.FindStringSubmatch(trimmedLine)
@@ -219,6 +249,15 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 			return err
 		}
 		a.ConversionFactor = &rate
+	}
+
+	// = balance assertion
+	if m[6] != "" {
+		assert, err := decimal.NewFromString(m[6])
+		if err != nil {
+			return err
+		}
+		a.BalanceAssert = &assert
 	}
 	return
 }

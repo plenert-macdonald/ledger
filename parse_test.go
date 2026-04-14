@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,17 @@ var testCases = []testCase{
 `,
 		nil,
 		errors.New(":3: unable to parse transaction: unable to balance transaction: no empty account to place extra balance"),
+	},
+	{
+		"unbalanced error multicurrency",
+		`1970/01/01 Payee
+	Expense/test  EUR 100
+	Assets      USD 100
+	Other       USD -200
+	More        EUR -100
+`,
+		nil,
+		errors.New(":5: unable to parse transaction: unable to balance transaction: no empty account to place extra balance"),
 	},
 	{
 		"single posting",
@@ -640,6 +652,60 @@ account Assets
 		},
 		nil,
 	},
+	{
+		"balance assertions",
+		`; test comment
+2025-01-01 opening balances
+    assets:capital_one                    USD 400.00 = USD 400.00
+    assets:ibkr                           EUR 600.00 = EUR 600.00
+	equity:opening/closing balances       EUR -600.00
+    equity:opening/closing balances       USD -400.00
+`,
+		[]*Transaction{
+			{
+				Payee:    "opening balances",
+				Date:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				Comments: []string{"; test comment"},
+				AccountChanges: []Account{
+					{
+						Name:          "assets:capital_one",
+						Currency:      "USD",
+						Balance:       decimal.NewFromFloat(400.0),
+						BalanceAssert: p(decimal.NewFromFloat(400.0)),
+					},
+					{
+						Name:          "assets:ibkr",
+						Currency:      "EUR",
+						Balance:       decimal.NewFromFloat(600.0),
+						BalanceAssert: p(decimal.NewFromFloat(600.0)),
+					},
+					{
+						Name:     "equity:opening/closing balances",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-600.0),
+					},
+					{
+						Name:     "equity:opening/closing balances",
+						Currency: "USD",
+						Balance:  decimal.NewFromFloat(-400.0),
+					},
+				},
+			},
+		},
+		nil,
+	},
+	{
+		"balance assertions",
+		`; test comment
+2025-01-01 opening balances
+    assets:capital_one                    USD 400.00 = USD 400.00
+    assets:ibkr                           EUR 600.00 = EUR 500.00
+	equity:opening/closing balances       EUR -600.00
+    equity:opening/closing balances       USD -400.00
+`,
+		nil,
+		ErrBalanceAssertionFailed,
+	},
 }
 
 func p(d decimal.Decimal) *decimal.Decimal {
@@ -648,16 +714,53 @@ func p(d decimal.Decimal) *decimal.Decimal {
 
 func TestParseLedger(t *testing.T) {
 	for _, tc := range testCases {
-		b := bytes.NewBufferString(tc.data)
-		transactions, err := ParseLedger("", b)
-		if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
-			t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
-		}
-		exp, _ := json.Marshal(tc.transactions)
-		got, _ := json.Marshal(transactions)
-		if string(exp) != string(got) {
-			t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			b := bytes.NewBufferString(tc.data)
+			transactions, err := ParseLedger("", b)
+			if (err != nil && tc.err == nil) || (err != nil && tc.err != nil && err.Error() != tc.err.Error()) {
+				t.Errorf("Error: expected `%s`, got `%s`", tc.err, err)
+			}
+			exp, _ := json.Marshal(tc.transactions)
+			got, _ := json.Marshal(transactions)
+			if string(exp) != string(got) {
+				t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
+			}
+		})
+	}
+}
+
+func TestEncoderLedger(t *testing.T) {
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.err != nil {
+				t.Skip("skipping error case")
+			}
+
+			// Parse original input
+			transactions, err := ParseLedger("", bytes.NewBufferString(tc.data))
+			if err != nil {
+				t.Fatalf("initial parse failed: %v", err)
+			}
+
+			// Encode parsed transactions
+			var buf strings.Builder
+			enc := NewEncoder(&buf, 80, strings.Repeat(" ", 80))
+			if err := enc.Encode(transactions); err != nil {
+				t.Fatalf("encode failed: %v", err)
+			}
+
+			// Re-parse encoded output
+			reparsed, err := ParseLedger("", strings.NewReader(buf.String()))
+			if err != nil {
+				t.Fatalf("re-parse failed: %v\nencoded:\n%s", err, buf.String())
+			}
+
+			exp, _ := json.Marshal(transactions)
+			got, _ := json.Marshal(reparsed)
+			if string(exp) != string(got) {
+				t.Errorf("round-trip mismatch:\nencoded:\n%s\nexpected:\n%s\ngot:\n%s", buf.String(), exp, got)
+			}
+		})
 	}
 }
 

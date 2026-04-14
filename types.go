@@ -18,6 +18,8 @@ type Account struct {
 	Converted *decimal.Decimal
 	// Conversion factor using @ notation
 	ConversionFactor *decimal.Decimal
+	// Balance assertion using = notation
+	BalanceAssert *decimal.Decimal
 }
 
 // Transaction is the basis of a ledger. The ledger holds a list of transactions.
