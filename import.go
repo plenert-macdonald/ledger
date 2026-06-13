@@ -25,18 +25,21 @@ var (
 )
 
 type Importer struct {
+	// Should be public members
 	importFilename   string
-	reader           *os.File
 	decScale         decimal.Decimal
 	matchingAccount  string
-	ledger           []*ledger.Transaction
-	trainingLedger   []*ledger.Transaction
-	classifier       *bayesian.Classifier
 	overrideCurrency string
 	fieldDelimiter   string
 	csvDateFormat    string
 	allowMatching    bool
 	negateAmount     bool
+
+	// Private members
+	ledger         []*ledger.Transaction
+	trainingLedger []*ledger.Transaction
+	reader         *os.File
+	classifier     *bayesian.Classifier
 }
 
 func NewImporter(accountSubstring, importFilename, fieldDelimiter, trainingLedgerFilePath string, scaleFactor float64, overrideCurrency string) *Importer {
