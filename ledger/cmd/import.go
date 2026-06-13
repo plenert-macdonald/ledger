@@ -27,7 +27,45 @@ var importCmd = &cobra.Command{
 		accountSubstring := args[0]
 		fileName := args[1]
 
-		imp := ledger.NewImporter(accountSubstring, fileName, fieldDelimiter, ledgerFilePath, scaleFactor, overrideCurrency)
+		// Explicitly construct the Importer struct
+		imp := &ledger.Importer{
+			ImportFilename:   fileName,
+			DecScale:         decimal.NewFromFloat(scaleFactor),
+			OverrideCurrency: overrideCurrency,
+			FieldDelimiter:   fieldDelimiter,
+		}
+
+		// Replicate NewImporter setup logic
+		fileReader, err := os.Open(fileName)
+		if err != nil {
+			fmt.Println("CSV: ", err)
+			return
+		}
+		imp.reader = fileReader
+
+		// If a ledger file path is provided, load it and train the classifier.
+		if ledgerFilePath != "" {
+			var parseError error
+			imp.trainingLedger, parseError = ledger.ParseLedgerFile(ledgerFilePath)
+			if parseError != nil {
+				fmt.Printf("%s:%s\n", ledgerFilePath, parseError.Error())
+				imp.reader.Close()
+				return
+			}
+
+			matchingAccount, err := imp.findMatchingAccount(accountSubstring)
+			if err != nil {
+				fmt.Println(err)
+				imp.reader.Close()
+				return
+			}
+			imp.MatchingAccount = matchingAccount
+
+			imp.classifier = imp.trainClassifier(imp.trainingLedger, imp.MatchingAccount)
+		} else {
+			imp.MatchingAccount = accountSubstring
+		}
+
 		defer imp.Close()
 
 		ledger := imp.Import()
