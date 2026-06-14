@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"testing"
 
-	"github.com/howeyc/ledger/ledger/cmd/internal/import/qif"
+	"github.com/howeyc/ledger/internal/import/qif"
 )
 
 //go:embed sample.qif

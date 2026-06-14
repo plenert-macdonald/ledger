@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/howeyc/ledger/ledger/cmd/internal/import/iif"
+	"github.com/howeyc/ledger/internal/import/iif"
 	"github.com/shopspring/decimal"
 )
 
