@@ -1,25 +1,23 @@
-package cmd
+package ledger
 
 import (
 	"testing"
-
-	"github.com/howeyc/ledger"
 )
 
 func Test_findMatchingAccount(t *testing.T) {
 	tests := []struct {
 		name string // description of this test case
 		// Named input parameters for target function.
-		generalLedger    []*ledger.Transaction
+		trainingLedger   []*Transaction
 		accountSubstring string
 		want             string
 		wantErr          bool
 	}{
 		{
 			"simple test",
-			[]*ledger.Transaction{
-				&ledger.Transaction{
-					AccountChanges: []ledger.Account{
+			[]*Transaction{
+				&Transaction{
+					AccountChanges: []Account{
 						{Name: "Equity:Fake"},
 						{Name: "Liability:Real"},
 					},
@@ -32,7 +30,7 @@ func Test_findMatchingAccount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			imp := &Importer{generalLedger: tt.generalLedger}
+			imp := &Importer{trainingLedger: tt.trainingLedger}
 			got, gotErr := imp.findMatchingAccount(tt.accountSubstring)
 			if gotErr != nil {
 				if !tt.wantErr {

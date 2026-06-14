@@ -7,7 +7,7 @@ import (
 
 	_ "embed"
 
-	"github.com/howeyc/ledger/ledger/cmd/internal/import/iif"
+	"github.com/howeyc/ledger/internal/import/iif"
 )
 
 var (
