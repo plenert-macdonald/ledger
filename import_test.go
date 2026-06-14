@@ -1,4 +1,4 @@
-package cmd
+package ledger_test
 
 import (
 	"testing"
