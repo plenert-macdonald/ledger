@@ -2,7 +2,10 @@ package camt
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io"
+
+	"github.com/shopspring/decimal"
 )
 
 // XML structures for CAMT.053 format
@@ -17,7 +20,49 @@ type BkToCstmrStmt struct {
 
 type Stmt struct {
 	Acct Acct   `xml:"Acct"`
+	Bal  []Bal  `xml:"Bal"`
 	Ntry []Ntry `xml:"Ntry"`
+}
+
+// Bal is a balance reported for the statement, such as the opening
+// ("OPBD") or closing ("CLBD") booked balance.
+type Bal struct {
+	Tp        BalTp  `xml:"Tp"`
+	Amt       Amount `xml:"Amt"`
+	CdtDbtInd string `xml:"CdtDbtInd"`
+}
+
+type BalTp struct {
+	CdOrPrtry CdOrPrtry `xml:"CdOrPrtry"`
+}
+
+type CdOrPrtry struct {
+	Cd string `xml:"Cd"`
+}
+
+// SignedAmount returns b's amount, negated if b is a debit balance
+// (CdtDbtInd "DBIT").
+func (b Bal) SignedAmount() (decimal.Decimal, error) {
+	amt, err := decimal.NewFromString(b.Amt.Value)
+	if err != nil {
+		return decimal.Decimal{}, fmt.Errorf("parsing balance amount %q: %w", b.Amt.Value, err)
+	}
+	if b.CdtDbtInd == "DBIT" {
+		amt = amt.Neg()
+	}
+	return amt, nil
+}
+
+// Balance returns the Bal in s.Bal whose type code (Tp.CdOrPrtry.Cd) is
+// code, e.g. "OPBD" for the opening booked balance or "CLBD" for the
+// closing booked balance, and whether one was found.
+func (s Stmt) Balance(code string) (Bal, bool) {
+	for _, b := range s.Bal {
+		if b.Tp.CdOrPrtry.Cd == code {
+			return b, true
+		}
+	}
+	return Bal{}, false
 }
 
 type Acct struct {
@@ -81,11 +126,13 @@ type Pty struct {
 	Nm string `xml:"Nm"`
 }
 
-func ParseCamt(reader io.Reader) ([]Ntry, error) {
+// ParseCamt parses a CAMT.053 statement, returning its account, balances,
+// and entries.
+func ParseCamt(reader io.Reader) (Stmt, error) {
 	var doc Document
 	if err := xml.NewDecoder(reader).Decode(&doc); err != nil {
-		return nil, err
+		return Stmt{}, err
 	}
 
-	return doc.BkToCstmrStmt.Stmt.Ntry, nil
+	return doc.BkToCstmrStmt.Stmt, nil
 }
