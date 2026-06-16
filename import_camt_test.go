@@ -8,6 +8,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// Entries are in reverse-chronological order in the XML to verify that
+// importCamt sorts them chronologically before processing.
 const camtWithBalances = `<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.10">
     <BkToCstmrStmt>
@@ -28,15 +30,15 @@ const camtWithBalances = `<?xml version="1.0" encoding="UTF-8"?>
             <Ntry>
                 <Amt Ccy="USD">1000.00</Amt>
                 <CdtDbtInd>CRDT</CdtDbtInd>
-                <BookgDt><DtTm>2026-01-31T19:24:13.233587+02:00</DtTm></BookgDt>
-                <BkTxCd><Prtry><Cd>TRANSFER-1948899598</Cd></Prtry></BkTxCd>
-                <AddtlNtryInf>Additional paid in capital</AddtlNtryInf>
+                <BookgDt><DtTm>2026-01-31T19:24:13+02:00</DtTm></BookgDt>
+                <BkTxCd><Prtry><Cd>TRANSFER-1</Cd></Prtry></BkTxCd>
+                <AddtlNtryInf>Payment received</AddtlNtryInf>
             </Ntry>
             <Ntry>
                 <Amt Ccy="USD">52.00</Amt>
                 <CdtDbtInd>DBIT</CdtDbtInd>
-                <BookgDt><DtTm>2026-01-23T20:06:02.508842+02:00</DtTm></BookgDt>
-                <BkTxCd><Prtry><Cd>CARD-3377418782</Cd></Prtry></BkTxCd>
+                <BookgDt><DtTm>2026-01-23T20:06:02+02:00</DtTm></BookgDt>
+                <BkTxCd><Prtry><Cd>CARD-1</Cd></Prtry></BkTxCd>
                 <AddtlNtryInf>Card transaction</AddtlNtryInf>
             </Ntry>
         </Stmt>
@@ -53,8 +55,8 @@ const camtNoBalances = `<?xml version="1.0" encoding="UTF-8"?>
             <Ntry>
                 <Amt Ccy="USD">52.00</Amt>
                 <CdtDbtInd>DBIT</CdtDbtInd>
-                <BookgDt><DtTm>2026-01-23T20:06:02.508842+02:00</DtTm></BookgDt>
-                <BkTxCd><Prtry><Cd>CARD-3377418782</Cd></Prtry></BkTxCd>
+                <BookgDt><DtTm>2026-01-23T20:06:02+02:00</DtTm></BookgDt>
+                <BkTxCd><Prtry><Cd>CARD-1</Cd></Prtry></BkTxCd>
                 <AddtlNtryInf>Card transaction</AddtlNtryInf>
             </Ntry>
         </Stmt>
@@ -76,15 +78,15 @@ const camtOnlyClosingBalance = `<?xml version="1.0" encoding="UTF-8"?>
             <Ntry>
                 <Amt Ccy="USD">52.00</Amt>
                 <CdtDbtInd>DBIT</CdtDbtInd>
-                <BookgDt><DtTm>2026-01-23T20:06:02.508842+02:00</DtTm></BookgDt>
-                <BkTxCd><Prtry><Cd>CARD-3377418782</Cd></Prtry></BkTxCd>
+                <BookgDt><DtTm>2026-01-23T20:06:02+02:00</DtTm></BookgDt>
+                <BkTxCd><Prtry><Cd>CARD-1</Cd></Prtry></BkTxCd>
                 <AddtlNtryInf>Card transaction</AddtlNtryInf>
             </Ntry>
         </Stmt>
     </BkToCstmrStmt>
 </Document>`
 
-const camtOverdrawnClosingBalance = `<?xml version="1.0" encoding="UTF-8"?>
+const camtOverdrawn = `<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.10">
     <BkToCstmrStmt>
         <Stmt>
@@ -104,8 +106,8 @@ const camtOverdrawnClosingBalance = `<?xml version="1.0" encoding="UTF-8"?>
             <Ntry>
                 <Amt Ccy="USD">150.00</Amt>
                 <CdtDbtInd>DBIT</CdtDbtInd>
-                <BookgDt><DtTm>2026-01-23T20:06:02.508842+02:00</DtTm></BookgDt>
-                <BkTxCd><Prtry><Cd>CARD-3377418782</Cd></Prtry></BkTxCd>
+                <BookgDt><DtTm>2026-01-23T20:06:02+02:00</DtTm></BookgDt>
+                <BkTxCd><Prtry><Cd>CARD-1</Cd></Prtry></BkTxCd>
                 <AddtlNtryInf>Card transaction</AddtlNtryInf>
             </Ntry>
         </Stmt>
@@ -113,35 +115,54 @@ const camtOverdrawnClosingBalance = `<?xml version="1.0" encoding="UTF-8"?>
 </Document>`
 
 func TestImportCamtBalanceAssertion(t *testing.T) {
+	type entryWant struct {
+		// assertion on AccountChanges[0] (the camtAccount posting), nil = no assertion
+		assert *decimal.Decimal
+	}
+
 	tests := []struct {
 		name    string
 		xml     string
-		want    *decimal.Decimal
 		wantLen int
+		// entries in expected chronological order
+		entries []entryWant
 	}{
 		{
+			// XML has CRDT 1000 (Jan 31) before DBIT 52 (Jan 23); after sorting:
+			// [0] Jan 23 DBIT 52  → OPBD(56.29) + (-52) = 4.29
+			// [1] Jan 31 CRDT 1000 → 4.29 + 1000 = 1004.29 = CLBD ✓
 			name:    "opening and closing balance present",
 			xml:     camtWithBalances,
-			want:    decimalPtr("948.00"),
 			wantLen: 2,
+			entries: []entryWant{
+				{assert: decimalPtr("4.29")},
+				{assert: decimalPtr("1004.29")},
+			},
 		},
 		{
-			name:    "no balances reported",
+			name:    "no balances reported — no assertions",
 			xml:     camtNoBalances,
-			want:    nil,
 			wantLen: 1,
+			entries: []entryWant{
+				{assert: nil},
+			},
 		},
 		{
-			name:    "only closing balance reported",
+			name:    "only closing balance — no assertions",
 			xml:     camtOnlyClosingBalance,
-			want:    nil,
 			wantLen: 1,
+			entries: []entryWant{
+				{assert: nil},
+			},
 		},
 		{
+			// OPBD +100, DBIT 150 → running = 100-150 = -50 = CLBD (DBIT 50) ✓
 			name:    "overdrawn closing balance",
-			xml:     camtOverdrawnClosingBalance,
-			want:    decimalPtr("-150.00"),
+			xml:     camtOverdrawn,
 			wantLen: 1,
+			entries: []entryWant{
+				{assert: decimalPtr("-50.00")},
+			},
 		},
 	}
 
@@ -167,16 +188,17 @@ func TestImportCamtBalanceAssertion(t *testing.T) {
 			if len(imp.ledger) != tt.wantLen {
 				t.Fatalf("len(imp.ledger) = %d, want %d", len(imp.ledger), tt.wantLen)
 			}
-			last := imp.ledger[len(imp.ledger)-1]
-			got := last.AccountChanges[0].BalanceAssert
-			if tt.want == nil {
-				if got != nil {
-					t.Errorf("BalanceAssert = %v, want nil", got)
+			for i, want := range tt.entries {
+				got := imp.ledger[i].AccountChanges[0].BalanceAssert
+				if want.assert == nil {
+					if got != nil {
+						t.Errorf("entries[%d].BalanceAssert = %v, want nil", i, got)
+					}
+					continue
 				}
-				return
-			}
-			if got == nil || !got.Equal(*tt.want) {
-				t.Errorf("BalanceAssert = %v, want %v", got, tt.want)
+				if got == nil || !got.Equal(*want.assert) {
+					t.Errorf("entries[%d].BalanceAssert = %v, want %v", i, got, want.assert)
+				}
 			}
 		})
 	}

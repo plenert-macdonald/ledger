@@ -703,8 +703,38 @@ account Assets
 	equity:opening/closing balances       EUR -600.00
     equity:opening/closing balances       USD -400.00
 `,
+		[]*Transaction{
+			{
+				Payee:    "opening balances",
+				Date:     time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				Comments: []string{"; test comment"},
+				AccountChanges: []Account{
+					{
+						Name:          "assets:capital_one",
+						Currency:      "USD",
+						Balance:       decimal.NewFromFloat(400.0),
+						BalanceAssert: p(decimal.NewFromFloat(400.0)),
+					},
+					{
+						Name:          "assets:ibkr",
+						Currency:      "EUR",
+						Balance:       decimal.NewFromFloat(600.0),
+						BalanceAssert: p(decimal.NewFromFloat(500.0)),
+					},
+					{
+						Name:     "equity:opening/closing balances",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-600.0),
+					},
+					{
+						Name:     "equity:opening/closing balances",
+						Currency: "USD",
+						Balance:  decimal.NewFromFloat(-400.0),
+					},
+				},
+			},
+		},
 		nil,
-		ErrBalanceAssertionFailed,
 	},
 }
 
@@ -724,6 +754,59 @@ func TestParseLedger(t *testing.T) {
 			got, _ := json.Marshal(transactions)
 			if string(exp) != string(got) {
 				t.Errorf("Error(%s): expected \n`%s`, \ngot \n`%s`", tc.name, exp, got)
+			}
+		})
+	}
+}
+
+func TestCheckBalanceAssertions(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    string
+		wantErr bool
+	}{
+		{
+			name: "matching assertions pass",
+			data: `; test comment
+2025-01-01 opening balances
+    assets:capital_one                    USD 400.00 = USD 400.00
+    assets:ibkr                           EUR 600.00 = EUR 600.00
+    equity:opening/closing balances       EUR -600.00
+    equity:opening/closing balances       USD -400.00
+`,
+		},
+		{
+			name: "wrong assertion fails",
+			data: `; test comment
+2025-01-01 opening balances
+    assets:capital_one                    USD 400.00 = USD 400.00
+    assets:ibkr                           EUR 600.00 = EUR 500.00
+    equity:opening/closing balances       EUR -600.00
+    equity:opening/closing balances       USD -400.00
+`,
+			wantErr: true,
+		},
+		{
+			name: "no assertions always passes",
+			data: `1970/01/01 Payee
+    Expense  100.00
+    Assets  -100.00
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			txs, err := ParseLedger("", bytes.NewBufferString(tt.data))
+			if err != nil {
+				t.Fatalf("ParseLedger() error = %v", err)
+			}
+			err = CheckBalanceAssertions(txs)
+			if tt.wantErr {
+				if !errors.Is(err, ErrBalanceAssertionFailed) {
+					t.Errorf("CheckBalanceAssertions() error = %v, want ErrBalanceAssertionFailed", err)
+				}
+			} else if err != nil {
+				t.Errorf("CheckBalanceAssertions() unexpected error = %v", err)
 			}
 		})
 	}

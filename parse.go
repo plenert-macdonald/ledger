@@ -45,15 +45,18 @@ func ParseLedger(name string, ledgerReader io.Reader) (generalLedger []*Transact
 		return nil, err
 	}
 
-	if err = checkBalanceAssertions(transactions); err != nil {
-		return nil, err
-	}
-
 	return transactions, nil
 }
 
-func checkBalanceAssertions(transactions []*Transaction) error {
-	// Track running balances per (account, currency) pair
+// CheckBalanceAssertions validates any balance assertions embedded in
+// transactions. It walks the slice in order, maintains a running balance per
+// (account, currency) pair, and returns ErrBalanceAssertionFailed if any
+// posting's BalanceAssert does not match the computed running balance.
+//
+// This is intentionally separate from ParseLedger so callers that work with
+// individual statement fragments (whose absolute assertions require prior-
+// period context) can defer validation to after all fragments are combined.
+func CheckBalanceAssertions(transactions []*Transaction) error {
 	type acctKey struct{ name, currency string }
 	running := make(map[acctKey]decimal.Decimal)
 

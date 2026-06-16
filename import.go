@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -257,6 +258,13 @@ func (imp *Importer) importCSV() {
 	}
 }
 
+func parseCamtDate(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02T15:04:05.999999-07:00", s)
+}
+
 func (imp *Importer) importCamt() {
 	stmt, err := camt.ParseCamt(imp.reader)
 	if err != nil {
@@ -264,51 +272,64 @@ func (imp *Importer) importCamt() {
 		return
 	}
 
-	expenseAccount := Account{Name: "unknown:unknown", Balance: decimal.Zero}
-	camtAccount := Account{Name: imp.MatchingAccount, Balance: decimal.Zero}
-	var lastTrans *Transaction
-	for _, entry := range stmt.Ntry {
-		dateTime, err := time.Parse(time.RFC3339, entry.BookgDt.DtTm)
-		if err != nil {
-			// Try another format if RFC3339 fails
-			dateTime, err = time.Parse("2006-01-02T15:04:05.999999-07:00", entry.BookgDt.DtTm)
-			if err != nil {
-				fmt.Println("CAMT parse error:", err.Error())
+	// Sort entries chronologically so assertions reflect the real running balance.
+	entries := make([]camt.Ntry, len(stmt.Ntry))
+	copy(entries, stmt.Ntry)
+	sort.SliceStable(entries, func(i, j int) bool {
+		ti, erri := parseCamtDate(entries[i].BookgDt.DtTm)
+		tj, errj := parseCamtDate(entries[j].BookgDt.DtTm)
+		if erri != nil || errj != nil {
+			return false
+		}
+		return ti.Before(tj)
+	})
+
+	// Resolve OPBD for running-balance assertions. If both OPBD and CLBD are
+	// present we can stamp each entry with the absolute account balance after
+	// that posting so that the reconcile UI can pre-confirm them automatically.
+	var runningBalance *decimal.Decimal
+	var closingBalance *decimal.Decimal
+	if opening, ok := stmt.Balance("OPBD"); ok {
+		if closing, ok := stmt.Balance("CLBD"); ok {
+			openAmt, openErr := opening.SignedAmount()
+			closeAmt, closeErr := closing.SignedAmount()
+			if openErr == nil && closeErr == nil {
+				scaled := openAmt.Mul(imp.DecScale)
+				runningBalance = &scaled
+				scaledClose := closeAmt.Mul(imp.DecScale)
+				closingBalance = &scaledClose
 			}
 		}
+	}
 
-		// Parse amount
+	expenseAccount := Account{Name: "unknown:unknown", Balance: decimal.Zero}
+	camtAccount := Account{Name: imp.MatchingAccount, Balance: decimal.Zero}
+	var transactions []*Transaction
+	for _, entry := range entries {
+		dateTime, err := parseCamtDate(entry.BookgDt.DtTm)
+		if err != nil {
+			fmt.Println("CAMT parse error:", err.Error())
+		}
+
 		amount, err := decimal.NewFromString(entry.Amt.Value)
 		if err != nil {
 			fmt.Println("CAMT parse error:", err.Error())
 		}
 
-		// Get reference and payee
 		reference := entry.BkTxCd.Prtry.Cd
 		payee := ""
-
-		// Extract payee from entry details if available
 		if entry.NtryDtls != nil && entry.NtryDtls.TxDtls.RltdPties.Cdtr != nil {
 			payee = entry.NtryDtls.TxDtls.RltdPties.Cdtr.Pty.Nm
 		} else {
-			// Use additional entry info as fallback
 			payee = entry.AddtlNtryInf
 		}
-		inputPayeeWords := strings.Fields(payee)
 
-		expenseAccount.Name = imp.predictAccount(inputPayeeWords)
+		expenseAccount.Name = imp.predictAccount(strings.Fields(payee))
 		expenseAccount.Balance = amount
-
-		// Determine if debit
-		isDebit := entry.CdtDbtInd == "DBIT"
-		if !isDebit {
+		if entry.CdtDbtInd != "DBIT" {
 			expenseAccount.Balance = expenseAccount.Balance.Neg()
 		}
-
-		// Apply scale
 		expenseAccount.Balance = expenseAccount.Balance.Mul(imp.DecScale)
-
-		// Csv amount is the negative of the expense amount
 		camtAccount.Balance = expenseAccount.Balance.Neg()
 
 		trans := &Transaction{Date: dateTime, Payee: payee}
@@ -325,25 +346,30 @@ func (imp *Importer) importCamt() {
 		if reference != "" {
 			trans.Comments = []string{";" + reference}
 		}
-		imp.recordTransaction(trans)
-		lastTrans = trans
+
+		// Advance running balance and stamp this posting's assertion.
+		if runningBalance != nil {
+			next := runningBalance.Add(camtAccount.Balance)
+			runningBalance = &next
+			trans.AccountChanges[0].BalanceAssert = runningBalance
+		}
+
+		transactions = append(transactions, trans)
 	}
 
-	// If the statement reports both an opening and closing booked balance,
-	// assert that imp.MatchingAccount's balance changes by their difference
-	// over the entries above, catching entries that failed to parse or were
-	// missing from the statement.
-	if lastTrans != nil {
-		if opening, ok := stmt.Balance("OPBD"); ok {
-			if closing, ok := stmt.Balance("CLBD"); ok {
-				openAmt, openErr := opening.SignedAmount()
-				closeAmt, closeErr := closing.SignedAmount()
-				if openErr == nil && closeErr == nil {
-					assertion := closeAmt.Sub(openAmt).Mul(imp.DecScale)
-					lastTrans.AccountChanges[0].BalanceAssert = &assertion
-				}
-			}
+	// Verify the last entry's assertion matches the closing balance reported
+	// by the bank. A mismatch means entries are missing or failed to parse.
+	if closingBalance != nil && len(transactions) > 0 {
+		last := transactions[len(transactions)-1]
+		if last.AccountChanges[0].BalanceAssert != nil &&
+			!last.AccountChanges[0].BalanceAssert.Equal(*closingBalance) {
+			fmt.Printf("CAMT warning: computed closing balance %s does not match statement CLBD %s — some entries may be missing\n",
+				last.AccountChanges[0].BalanceAssert, closingBalance)
 		}
+	}
+
+	for _, trans := range transactions {
+		imp.recordTransaction(trans)
 	}
 }
 
