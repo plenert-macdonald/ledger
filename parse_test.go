@@ -591,10 +591,11 @@ account Assets
 						Balance:  decimal.NewFromFloat(-2000.0),
 					},
 					{
-						Name:      "Assets:Wise:EUR",
-						Currency:  "EUR",
-						Balance:   decimal.NewFromFloat(1000.0),
-						Converted: p(decimal.NewFromFloat(-2000.0)),
+						Name:              "Assets:Wise:EUR",
+						Currency:          "EUR",
+						Balance:           decimal.NewFromFloat(1000.0),
+						Converted:         p(decimal.NewFromFloat(2000.0)),
+						ConvertedCurrency: "CZK",
 					},
 				},
 			},
@@ -642,10 +643,11 @@ account Assets
 						Balance:  decimal.NewFromFloat(-1000.0),
 					},
 					{
-						Name:      "assets:wise",
-						Currency:  "USD",
-						Balance:   decimal.NewFromFloat(2060.0),
-						Converted: p(decimal.NewFromFloat(-1000)),
+						Name:              "assets:wise",
+						Currency:          "USD",
+						Balance:           decimal.NewFromFloat(2060.0),
+						Converted:         p(decimal.NewFromFloat(1000)),
+						ConvertedCurrency: "EUR",
 					},
 				},
 			},
@@ -730,6 +732,79 @@ account Assets
 						Name:     "equity:opening/closing balances",
 						Currency: "USD",
 						Balance:  decimal.NewFromFloat(-400.0),
+					},
+				},
+			},
+		},
+		nil,
+	},
+	{
+		"multi-currency card transaction with @@ conversions",
+		`;CARD-377
+2026/05/09 Card transaction of 1,042.80 EUR issued
+    assets:wise                                                       USD -32.61 @@ EUR 27.59
+    assets:wise                                                 EUR -7.39
+    assets:wise                                                    CZK -24612.18 @@ EUR 1007.82
+    expenses:supplies                                                EUR 1042.80
+`,
+		[]*Transaction{
+			{
+				Payee:    "Card transaction of 1,042.80 EUR issued",
+				Date:     time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC),
+				Comments: []string{";CARD-377"},
+				AccountChanges: []Account{
+					{
+						Name:              "assets:wise",
+						Currency:          "USD",
+						Balance:           decimal.NewFromFloat(-32.61),
+						Converted:         p(decimal.NewFromFloat(27.59)),
+						ConvertedCurrency: "EUR",
+					},
+					{
+						Name:     "assets:wise",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(-7.39),
+					},
+					{
+						Name:              "assets:wise",
+						Currency:          "CZK",
+						Balance:           decimal.NewFromFloat(-24612.18),
+						Converted:         p(decimal.NewFromFloat(1007.82)),
+						ConvertedCurrency: "EUR",
+					},
+					{
+						Name:     "expenses:supplies",
+						Currency: "EUR",
+						Balance:  decimal.NewFromFloat(1042.80),
+					},
+				},
+			},
+		},
+		nil,
+	},
+	{
+		"transfer fee with balance assertion no currency",
+		`;FEE-TRANSFER-2
+2026/05/15 Wise Charges for: TRANSFER-21
+    assets:wise                                           CZK -95.30 = 155.24
+    expenses:bank                                                      CZK 95.30
+`,
+		[]*Transaction{
+			{
+				Payee:    "Wise Charges for: TRANSFER-21",
+				Date:     time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+				Comments: []string{";FEE-TRANSFER-2"},
+				AccountChanges: []Account{
+					{
+						Name:          "assets:wise",
+						Currency:      "CZK",
+						Balance:       decimal.NewFromFloat(-95.30),
+						BalanceAssert: p(decimal.NewFromFloat(155.24)),
+					},
+					{
+						Name:     "expenses:bank",
+						Currency: "CZK",
+						Balance:  decimal.NewFromFloat(95.30),
 					},
 				},
 			},
@@ -847,6 +922,42 @@ func TestEncoderLedger(t *testing.T) {
 	}
 }
 
+// TestEncoderLongPostingRoundTrip guards against the encoder collapsing the
+// account/amount separator to a single space when a posting's name plus amount
+// is wider than the column budget. The parser requires at least two spaces (or
+// a tab) before an amount, so a single-space separator makes the amount
+// unparseable: parsePosting fails, the amount is silently dropped, and the
+// posting becomes "empty" — surfacing later as a confusing "more than one
+// account empty" balance error rather than a parse error.
+func TestEncoderLongPostingRoundTrip(t *testing.T) {
+	// A long account name combined with an @@ conversion amount exceeds the
+	// 80-column budget, forcing the separator down to one space.
+	data := `2026/05/09 Card transaction
+    assets:wise:czech:operating:long:account:name:here                CZK -24612.18 @@ EUR 1007.82
+    expenses:supplies                                                 EUR 1007.82
+`
+	transactions, err := ParseLedger("", bytes.NewBufferString(data))
+	if err != nil {
+		t.Fatalf("initial parse failed: %v", err)
+	}
+
+	var buf strings.Builder
+	if err := NewEncoder(&buf, 80, strings.Repeat(" ", 80)).Encode(transactions); err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+
+	reparsed, err := ParseLedger("", strings.NewReader(buf.String()))
+	if err != nil {
+		t.Fatalf("re-parse of encoded output failed: %v\nencoded:\n%s", err, buf.String())
+	}
+
+	exp, _ := json.Marshal(transactions)
+	got, _ := json.Marshal(reparsed)
+	if string(exp) != string(got) {
+		t.Errorf("round-trip mismatch:\nencoded:\n%s\nexpected:\n%s\ngot:\n%s", buf.String(), exp, got)
+	}
+}
+
 func BenchmarkParseLedger(b *testing.B) {
 	for b.Loop() {
 		_, _ = ParseLedgerFile("testdata/ledgerBench.dat")
@@ -954,6 +1065,12 @@ func TestAccount_parsePosting(t *testing.T) {
 			"conversion",
 			"Expense/test   $ 100 @ 2",
 			Account{Name: "Expense/test", Currency: "$", Balance: decimal.NewFromFloat(100.0), ConversionFactor: p(decimal.NewFromFloat(2.0))},
+			false,
+		},
+		{
+			"conversion rate with currency",
+			"Assets:Wise:CZK   CZK -298732.17 @ USD 0.04781",
+			Account{Name: "Assets:Wise:CZK", Currency: "CZK", Balance: decimal.NewFromFloat(-298732.17), ConversionFactor: p(decimal.RequireFromString("0.04781")), ConversionFactorCurrency: "USD"},
 			false,
 		},
 	}

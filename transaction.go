@@ -13,6 +13,18 @@ var (
 	ErrBalanceAssertionFailed         = errors.New("balance assertion failed")
 )
 
+// convertedCost returns the cost of a posting that carries an @@ total price,
+// expressed in its ConvertedCurrency. Converted is stored as a positive
+// magnitude, so the cost takes the sign of the posting's own Balance — matching
+// standard ledger/hledger semantics where "@@ <amount>" is always positive.
+func convertedCost(a *Account) decimal.Decimal {
+	c := a.Converted.Abs()
+	if a.Balance.IsNegative() {
+		return c.Neg()
+	}
+	return c
+}
+
 func (t *Transaction) IsBalanced() error {
 	if len(t.AccountChanges) < 2 {
 		return ErrNeedAtLeastTwoPostings
@@ -34,7 +46,7 @@ func (t *Transaction) IsBalanced() error {
 
 		switch {
 		case acc.Converted != nil:
-			transBal = transBal.Add(acc.Converted.Neg())
+			transBal = transBal.Add(convertedCost(&acc))
 		case acc.ConversionFactor != nil:
 			transBal = transBal.Add(acc.Balance.Mul(*acc.ConversionFactor))
 		default:
@@ -145,7 +157,7 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 		for _, idx := range g.indices {
 			acc := &t.AccountChanges[idx]
 			if acc.Converted != nil {
-				total = total.Add(acc.Converted.Neg())
+				total = total.Add(convertedCost(acc))
 			} else if acc.ConversionFactor != nil {
 				total = total.Add(acc.Balance.Mul(*acc.ConversionFactor))
 			} else {
@@ -162,7 +174,7 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 		if acc.Converted != nil || acc.ConversionFactor != nil {
 			switch {
 			case acc.Converted != nil:
-				sumOtherRaw = sumOtherRaw.Add(acc.Converted.Neg())
+				sumOtherRaw = sumOtherRaw.Add(convertedCost(acc))
 			case acc.ConversionFactor != nil:
 				sumOtherRaw = sumOtherRaw.Add(acc.Balance.Mul(*acc.ConversionFactor))
 			}
@@ -181,8 +193,11 @@ func (t *Transaction) inferConversionFactorForTwoCurrencyTx() error {
 	for _, idx := range groups[otherCurIdx].indices {
 		acc := &t.AccountChanges[idx]
 		if acc.ConversionFactor == nil && acc.Converted == nil {
-			conv := acc.Balance.Mul(sumBase).Div(sumOtherRaw)
+			// Store the total price as a positive magnitude in the base
+			// currency; convertedCost reapplies the posting's sign.
+			conv := acc.Balance.Mul(sumBase).Div(sumOtherRaw).Abs()
 			acc.Converted = &conv
+			acc.ConvertedCurrency = curKeys[baseCurIdx]
 		}
 	}
 

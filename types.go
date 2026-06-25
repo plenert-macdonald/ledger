@@ -14,10 +14,19 @@ type Account struct {
 	Balance  decimal.Decimal
 	Comment  string
 
-	// Balance converted using @@ notation
+	// Balance converted using @@ notation. This is the total price of the
+	// posting expressed in ConvertedCurrency, always stored as a positive
+	// magnitude (standard ledger/hledger semantics); the cost takes the sign
+	// of Balance.
 	Converted *decimal.Decimal
-	// Conversion factor using @ notation
+	// Currency of the Converted amount (the "@@ <currency> <amount>" token).
+	// May be "" if the source omitted it.
+	ConvertedCurrency string
+	// Conversion factor (per-unit price) using @ notation
 	ConversionFactor *decimal.Decimal
+	// Currency of the ConversionFactor (the "@ <currency> <rate>" token).
+	// May be "" if the source omitted it.
+	ConversionFactorCurrency string
 	// Balance assertion using = notation
 	BalanceAssert *decimal.Decimal
 }

@@ -182,21 +182,23 @@ func (lp *parser) skipAccount() {
 func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 	trimmedLine = strings.TrimSpace(trimmedLine)
 
-	// Regex groups:
-	// 1: account name
-	// 2: currency
-	// 3: amount (number or parenthesized expression)
-	// 4: @@ converted amount
-	// 5: @ conversion rate
-	// 6: balance assertion amount
+	// Named regex groups:
+	//   name      account name
+	//   currency  posting amount currency
+	//   amount    amount (number or parenthesized expression)
+	//   convcur   @@ converted amount currency (optional)
+	//   converted @@ converted (total price) amount
+	//   factorcur @ conversion rate currency (optional)
+	//   factor    @ conversion rate
+	//   assert    balance assertion amount
 	re := regexp.MustCompile(
 		`^(?P<name>.+?)` +
 			`(?:(?:\s{2,}|\t)` +
 			`(?:(?P<currency>[A-Z\$]+)\s+)?` +
 			`(?P<amount>[\-]?\d+(?:\.\d+)?|\([0-9+\-*\/. ]+\))` +
 			`(?:\s*(?:@@\s*` +
-			`(?P<converted>[\-]?\d+(?:\.\d+)?)|@\s*` +
-			`(?P<factor>[\-]?\d+(?:\.\d+)?)))?` +
+			`(?:(?P<convcur>[A-Z\$]+)\s+)?(?P<converted>[\-]?\d+(?:\.\d+)?)|@\s*` +
+			`(?:(?P<factorcur>[A-Z\$]+)\s+)?(?P<factor>[\-]?\d+(?:\.\d+)?)))?` +
 			`(?:\s*=\s*(?:[A-Z\$]+\s+)?(?P<assert>[\-]?\d+(?:\.\d+)?))?)?\s*$`,
 	)
 
@@ -205,12 +207,20 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 		return fmt.Errorf("invalid posting: %q", trimmedLine)
 	}
 
-	a.Name = m[1]
-	a.Currency = m[2]
+	group := func(name string) string {
+		idx := re.SubexpIndex(name)
+		if idx < 0 {
+			return ""
+		}
+		return m[idx]
+	}
+
+	a.Name = group("name")
+	a.Currency = group("currency")
 	a.Comment = comment
 
-	if m[3] != "" {
-		program, err := expr.Compile(m[3])
+	if amount := group("amount"); amount != "" {
+		program, err := expr.Compile(amount)
 		if err != nil {
 			return err
 		}
@@ -236,31 +246,35 @@ func (a *Account) parsePosting(trimmedLine string, comment string) (err error) {
 		a.Balance = decimal.NewFromFloat(f)
 	}
 
-	// @@ explicit converted amount
-	if m[4] != "" {
-		conv, err := decimal.NewFromString(m[4])
+	// @@ explicit converted (total price) amount. Stored as a positive
+	// magnitude; the cost takes the sign of Balance during balancing.
+	if converted := group("converted"); converted != "" {
+		conv, err := decimal.NewFromString(converted)
 		if err != nil {
 			return err
 		}
+		conv = conv.Abs()
 		a.Converted = &conv
+		a.ConvertedCurrency = group("convcur")
 	}
 
 	// @ rate-based conversion
-	if m[5] != "" {
-		rate, err := decimal.NewFromString(m[5])
+	if factor := group("factor"); factor != "" {
+		rate, err := decimal.NewFromString(factor)
 		if err != nil {
 			return err
 		}
 		a.ConversionFactor = &rate
+		a.ConversionFactorCurrency = group("factorcur")
 	}
 
 	// = balance assertion
-	if m[6] != "" {
-		assert, err := decimal.NewFromString(m[6])
+	if assert := group("assert"); assert != "" {
+		assertVal, err := decimal.NewFromString(assert)
 		if err != nil {
 			return err
 		}
-		a.BalanceAssert = &assert
+		a.BalanceAssert = &assertVal
 	}
 	return
 }
@@ -317,7 +331,9 @@ func (b *block) parseTransaction() (trans *Transaction, err error) {
 		}
 
 		posting := Account{}
-		posting.parsePosting(trimmedLine, postingComment)
+		if err := posting.parsePosting(trimmedLine, postingComment); err != nil {
+			return nil, err
+		}
 		trans.AccountChanges = append(trans.AccountChanges, posting)
 	}
 

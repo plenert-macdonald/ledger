@@ -75,18 +75,31 @@ func (e *Encoder) encodeTransaction(trans *Transaction) error {
 		if accChange.Currency != "" {
 			outBalanceString = accChange.Currency + " " + outBalanceString
 		}
-		// Show converted amount (@@) or conversion factor (@) similar to hledger
+		// Show converted amount (@@) or conversion factor (@) similar to hledger.
+		// The @@ total price is always emitted as a positive magnitude with its
+		// currency, e.g. "@@ CZK 300000.00".
 		if accChange.Converted != nil {
-			outBalanceString = outBalanceString + " @@ " + accChange.Converted.StringFixedBank(2)
+			outBalanceString += " @@ "
+			if accChange.ConvertedCurrency != "" {
+				outBalanceString += accChange.ConvertedCurrency + " "
+			}
+			outBalanceString += accChange.Converted.Abs().StringFixedBank(2)
 		} else if accChange.ConversionFactor != nil {
-			outBalanceString = outBalanceString + " @ " + accChange.ConversionFactor.String()
+			outBalanceString += " @ "
+			if accChange.ConversionFactorCurrency != "" {
+				outBalanceString += accChange.ConversionFactorCurrency + " "
+			}
+			outBalanceString += accChange.ConversionFactor.String()
 		}
 		if accChange.BalanceAssert != nil {
 			outBalanceString = outBalanceString + " = " + accChange.BalanceAssert.StringFixedBank(2)
 		}
 		spaceCount := columns - 4 - utf8.RuneCountInString(accChange.Name) - utf8.RuneCountInString(outBalanceString)
-		if spaceCount < 1 {
-			spaceCount = 1
+		// The parser requires at least two spaces (or a tab) between the account
+		// name and the amount; never emit a single space, even when the name and
+		// amount already overflow the column budget, or the output won't round-trip.
+		if spaceCount < 2 {
+			spaceCount = 2
 		}
 		w.WriteString(spaceStr[:4])
 		w.WriteString(accChange.Name)

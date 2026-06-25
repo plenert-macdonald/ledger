@@ -23,7 +23,11 @@ func FuzzParseLedger(f *testing.F) {
 			for _, p := range t.AccountChanges {
 				switch {
 				case p.Converted != nil:
-					overall = overall.Add(p.Converted.Neg())
+					cost := p.Converted.Abs()
+					if p.Balance.IsNegative() {
+						cost = cost.Neg()
+					}
+					overall = overall.Add(cost)
 				case p.ConversionFactor != nil:
 					overall = overall.Add(p.Balance.Mul(
 						*p.ConversionFactor,

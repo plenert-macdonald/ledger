@@ -347,6 +347,30 @@ func (imp *Importer) importCamt() {
 			trans.Comments = []string{";" + reference}
 		}
 
+		// Currency conversion: when the entry carries exchange details whose
+		// original (pre-conversion) amount is in a different currency, record
+		// the counter posting in that original currency and price it at the
+		// booked amount with @@, so the cross-currency transaction balances
+		// exactly (the booked amount is the authoritative converted value).
+		if _, ok := entry.Exchange(); ok && imp.OverrideCurrency == "" {
+			if orig, ok := entry.OriginalAmount(); ok && orig.Ccy != "" && orig.Ccy != entry.Amt.Ccy {
+				if origAmt, err := decimal.NewFromString(orig.Value); err == nil {
+					counter := &trans.AccountChanges[1]
+					origMag := origAmt.Mul(imp.DecScale).Abs()
+					// The counter posting takes the opposite sign of the bank.
+					if trans.AccountChanges[0].Balance.IsNegative() {
+						counter.Balance = origMag
+					} else {
+						counter.Balance = origMag.Neg()
+					}
+					counter.Currency = orig.Ccy
+					bookedTotal := trans.AccountChanges[0].Balance.Abs()
+					counter.Converted = &bookedTotal
+					counter.ConvertedCurrency = entry.Amt.Ccy
+				}
+			}
+		}
+
 		// Advance running balance and stamp this posting's assertion.
 		if runningBalance != nil {
 			next := runningBalance.Add(camtAccount.Balance)

@@ -1,8 +1,10 @@
 package ledger
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -201,6 +203,86 @@ func TestImportCamtBalanceAssertion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A Wise currency-conversion entry: USD 14283.61 booked, converted from
+// CZK 298732.17 at 0.04781 USD/CZK.
+const camtConversion = `<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.10">
+    <BkToCstmrStmt>
+        <Stmt>
+            <Acct><Ccy>USD</Ccy></Acct>
+            <Ntry>
+                <Amt Ccy="USD">14283.61</Amt>
+                <CdtDbtInd>CRDT</CdtDbtInd>
+                <BookgDt><DtTm>2026-05-09T10:00:00+02:00</DtTm></BookgDt>
+                <BkTxCd><Prtry><Cd>BALANCE-5308275565</Cd></Prtry></BkTxCd>
+                <AmtDtls><TxAmt>
+                    <Amt Ccy="CZK">298732.17</Amt>
+                    <CcyXchg>
+                        <SrcCcy>CZK</SrcCcy>
+                        <TrgtCcy>USD</TrgtCcy>
+                        <UnitCcy>CZK</UnitCcy>
+                        <XchgRate>0.04781</XchgRate>
+                    </CcyXchg>
+                </TxAmt></AmtDtls>
+                <AddtlNtryInf>Converted 300,000.00 CZK to 14,283.61 USD</AddtlNtryInf>
+            </Ntry>
+        </Stmt>
+    </BkToCstmrStmt>
+</Document>`
+
+func TestImportCamtConversion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "statement.xml")
+	if err := os.WriteFile(path, []byte(camtConversion), 0644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	imp := &Importer{
+		MatchingAccount: "assets:wise",
+		DecScale:        decimal.NewFromInt(1),
+		reader:          f,
+	}
+	imp.importCamt()
+
+	if len(imp.ledger) != 1 {
+		t.Fatalf("len(imp.ledger) = %d, want 1", len(imp.ledger))
+	}
+	trans := imp.ledger[0]
+	if len(trans.AccountChanges) != 2 {
+		t.Fatalf("got %d postings, want 2", len(trans.AccountChanges))
+	}
+
+	bank := trans.AccountChanges[0]
+	if bank.Currency != "USD" || bank.Balance.StringFixed(2) != "14283.61" {
+		t.Errorf("bank posting = %s %s, want USD 14283.61", bank.Currency, bank.Balance.StringFixed(2))
+	}
+
+	counter := trans.AccountChanges[1]
+	if counter.Currency != "CZK" || counter.Balance.StringFixed(2) != "-298732.17" {
+		t.Errorf("counter posting = %s %s, want CZK -298732.17", counter.Currency, counter.Balance.StringFixed(2))
+	}
+	if counter.Converted == nil || counter.Converted.StringFixed(2) != "14283.61" {
+		t.Errorf("counter.Converted = %v, want 14283.61", counter.Converted)
+	}
+	if counter.ConvertedCurrency != "USD" {
+		t.Errorf("counter.ConvertedCurrency = %q, want USD", counter.ConvertedCurrency)
+	}
+
+	// The @@ price anchors the CZK leg to the booked USD amount, so the
+	// transaction balances in USD: +14283.61 and -14283.61.
+	var buf bytes.Buffer
+	if err := NewEncoder(&buf, 80, "  ").Encode(trans); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "CZK -298732.17 @@ USD 14283.61") {
+		t.Errorf("encoded entry missing CZK @@ USD price:\n%s", buf.String())
 	}
 }
 
