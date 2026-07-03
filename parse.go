@@ -48,15 +48,29 @@ func ParseLedger(name string, ledgerReader io.Reader) (generalLedger []*Transact
 	return transactions, nil
 }
 
+// SkipBalanceAssertions, when true, disables balance-assertion validation
+// process-wide: CheckBalanceAssertions becomes a no-op and returns nil
+// regardless of the transactions passed. Balance assertions are still parsed,
+// preserved, and re-encoded — only the validation is turned off. Callers that
+// combine fragments whose assertions cannot form a single valid running
+// sequence (e.g. interleaved per-account statements) can set this to skip the
+// check entirely.
+var SkipBalanceAssertions bool
+
 // CheckBalanceAssertions validates any balance assertions embedded in
 // transactions. It walks the slice in order, maintains a running balance per
 // (account, currency) pair, and returns ErrBalanceAssertionFailed if any
-// posting's BalanceAssert does not match the computed running balance.
+// posting's BalanceAssert does not match the computed running balance. When
+// SkipBalanceAssertions is set it returns nil without checking anything.
 //
 // This is intentionally separate from ParseLedger so callers that work with
 // individual statement fragments (whose absolute assertions require prior-
 // period context) can defer validation to after all fragments are combined.
 func CheckBalanceAssertions(transactions []*Transaction) error {
+	if SkipBalanceAssertions {
+		return nil
+	}
+
 	type acctKey struct{ name, currency string }
 	running := make(map[acctKey]decimal.Decimal)
 

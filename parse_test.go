@@ -883,6 +883,15 @@ func TestCheckBalanceAssertions(t *testing.T) {
 			} else if err != nil {
 				t.Errorf("CheckBalanceAssertions() unexpected error = %v", err)
 			}
+
+			// With SkipBalanceAssertions set, even a failing assertion is a no-op.
+			t.Run("skipped", func(t *testing.T) {
+				defer func(prev bool) { SkipBalanceAssertions = prev }(SkipBalanceAssertions)
+				SkipBalanceAssertions = true
+				if err := CheckBalanceAssertions(txs); err != nil {
+					t.Errorf("CheckBalanceAssertions() with SkipBalanceAssertions = %v, want nil", err)
+				}
+			})
 		})
 	}
 }

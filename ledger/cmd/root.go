@@ -5,18 +5,23 @@ import (
 	"os"
 	"runtime/pprof"
 
+	"github.com/howeyc/ledger"
 	cc "github.com/ivanpirog/coloredcobra"
 	"github.com/spf13/cobra"
 )
 
 var cpuprofile string
 var cpuf *os.File
+var ignoreAssertions bool
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "ledger",
 	Short: "Plain text accounting",
 	PersistentPreRun: func(_ *cobra.Command, _ []string) {
+		if ignoreAssertions {
+			ledger.SkipBalanceAssertions = true
+		}
 		if cpuprofile != "" {
 			var err error
 			cpuf, err = os.Create(cpuprofile)
@@ -64,6 +69,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVarP(&ledgerFilePath, "file", "f", ledgerFilePath, "ledger file (default is $LEDGER_FILE)")
 	rootCmd.PersistentFlags().StringVarP(&cpuprofile, "prof", "", "", "write cpu profile to `file`")
+	rootCmd.PersistentFlags().BoolVarP(&ignoreAssertions, "ignore-assertions", "I", false, "ignore any balance assertions in the ledger")
 }
 
 // initConfig reads in config file and ENV variables if set.
